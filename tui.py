@@ -54,8 +54,16 @@ def gravar_env(chave, valor):
         f.write('\n'.join(linhas) + '\n')
 
 
-def margem_meta(env=None):
-    return float((env or ler_env()).get('MARGEM_META', '0.18').replace(',', '.'))
+def margem_meta(env=None, chave='MARGEM_META', padrao='0.18'):
+    return float((env or ler_env()).get(chave, padrao).replace(',', '.'))
+
+
+def margem_atacado(env=None):
+    return margem_meta(env, 'MARGEM_META_ATACADO', '0.175')
+
+
+def pct(x):
+    return f'{x * 100:g}%'
 
 
 def coleta_atual():
@@ -108,7 +116,7 @@ def cabecalho():
     print(f'{NEGRITO} ml-margem{FIM}  {CINZA}margem e preço sugerido dos anúncios do ML{FIM}\n')
     ult = planilhas('custo')[:1]
     print(f'  Última planilha  {Path(ult[0]).name + "  (" + quando(ult[0]) + ")" if ult else "nenhuma ainda"}')
-    print(f'  Margem alvo      {margem_meta():.0%}')
+    print(f'  Margem alvo      {pct(margem_meta())}  (atacado {pct(margem_atacado())})')
     c = coleta_parada()
     if c:
         print(f'\n  {AMARELO}! Atualização interrompida em {c["feitos"]}/{c["total"]} anúncios: '
@@ -181,18 +189,22 @@ def numero_valido(minimo, maximo):
     return v
 
 
-def acao_meta():
-    meta = margem_meta()
-    t = questionary.text('Nova margem alvo em % (ex.: 18):', default=f'{meta * 100:g}',
+def acao_meta(chave='MARGEM_META', atual=None, nome='margem alvo', exemplo='18'):
+    meta = margem_meta() if atual is None else atual
+    t = questionary.text(f'Nova {nome} em % (ex.: {exemplo}):', default=f'{meta * 100:g}',
                          validate=numero_valido(1, 60), style=ESTILO).ask()
     if not t:
         return
-    gravar_env('MARGEM_META', f'{float(t.replace(",", ".")) / 100:g}')
+    gravar_env(chave, f'{float(t.replace(",", ".")) / 100:g}')
     print('Salvo.')
     if planilhas('margem') and questionary.confirm(
             'Recalcular a planilha agora com a nova margem? (não busca no ML)',
             default=True, style=ESTILO).ask():
         acao_recalcular()
+
+
+def acao_meta_atacado():
+    acao_meta('MARGEM_META_ATACADO', margem_atacado(), 'margem do atacado', '17.5')
 
 
 def acao_autorizar():
@@ -307,6 +319,7 @@ def main():
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise SystemExit('O menu precisa de um terminal interativo (abra pelo SSH normal, não por pipe ou cron).')
     acoes = {'atualizar': acao_atualizar, 'recalcular': acao_recalcular, 'meta': acao_meta,
+             'meta_atacado': acao_meta_atacado,
              'autorizar': acao_autorizar, 'avancado': acao_avancado}
     while True:
         cabecalho()
@@ -317,7 +330,8 @@ def main():
             Choice('Continuar a atualização' if coleta_parada() else
                    'Atualizar margens (busca no ML e gera a planilha)', 'atualizar'),
             Choice('Recalcular sem buscar no ML (após mudar preços ou apelidos)', 'recalcular'),
-            Choice(f'Mudar a margem alvo ({margem_meta():.0%})', 'meta'),
+            Choice(f'Mudar a margem alvo ({pct(margem_meta())})', 'meta'),
+            Choice(f'Mudar a margem do atacado ({pct(margem_atacado())})', 'meta_atacado'),
             Separator(),
             Choice('Avançado...', 'avancado'),
             Choice('Sair', 'sair'),

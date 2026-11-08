@@ -42,6 +42,7 @@ Abre o menu (setas e Enter, Ctrl+C volta):
 - **Atualizar margens**: busca todos os anúncios no ML e já gera a planilha de custo e margem. Se a busca for interrompida, a opção vira **Continuar a atualização**.
 - **Recalcular sem buscar no ML**: gera a planilha de novo com a última busca, depois de mudar o `precos.xlsx` ou o `apelidos.xlsx`.
 - **Mudar a margem alvo**: grava a `MARGEM_META` e oferece recalcular a planilha.
+- **Mudar a margem do atacado**: grava a `MARGEM_META_ATACADO` e oferece recalcular a planilha.
 - **Avançado**: buscar só ativos ou só pausados, testar com alguns anúncios, recalcular com uma busca mais antiga, gerar a planilha da busca atual sem chamar a API, ver o log, mudar o limite de requisições e reautorizar o app.
 
 Enquanto o app não estiver autorizado, o menu mostra **Autorizar o app no ML** no topo.
