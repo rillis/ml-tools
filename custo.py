@@ -16,7 +16,8 @@ Como o SKU do anúncio vira custo (nesta ordem):
      e é procurada: igual, ignorando pontuação ("Cab-bico042" = "CAB-BICO-042"),
      e abrindo a barra dentro de um trecho ("TP-036.M/F.GOLF" = TP-036.M.GOLF + TP-036.F.GOLF)
 Se alguma peça não tiver preço, o anúncio fica sem custo e o resumo na tela diz qual faltou.
-A coluna diferenca é preco_sugerido - preco (positivo: precisa subir o preço).
+A coluna diferenca é preco_sugerido - preco (positivo: precisa subir o preço);
+diferenca_pct é diferenca / preco.
 A coluna so_gratis marca anúncios só com itens grátis: neles o preco_sugerido é o preço atual.
 """
 import argparse
@@ -208,9 +209,9 @@ def main():
     ws = wb.active
     ws.title = 'margem'
     # A codigo, B sku, C titulo, D status, E so_gratis, F preco, G taxa, H adc, I frete,
-    # J custo, K custo_desc, L lucro, M margem, N preco_sugerido, O diferenca
+    # J custo, K custo_desc, L lucro, M margem, N preco_sugerido, O diferenca, P diferenca_pct
     cab = ['codigo', 'sku', 'titulo', 'status', 'so_gratis', 'preco', 'taxa', 'adc', 'frete',
-           'custo', 'custo_desc', 'lucro', 'margem', 'preco_sugerido', 'diferenca']
+           'custo', 'custo_desc', 'lucro', 'margem', 'preco_sugerido', 'diferenca', 'diferenca_pct']
     ws.append(cab)
     cont = {'com custo': 0, 'sem custo': 0, 'só grátis': 0}
     sem_custo = []
@@ -234,6 +235,7 @@ def main():
             # anúncio só com itens grátis: a margem não importa, mantém o preço atual
             f'=IF(E{n}="sim",F{n},ROUND((H{n}+I{n}+K{n})/(1-G{n}-{META}),2))' if tem else None,
             f'=N{n}-F{n}' if tem else None,  # preco_sugerido - preco
+            f'=IF(F{n}>0,O{n}/F{n},"")' if tem else None,  # diferenca / preco
         ])
 
     ult = ws.max_row
@@ -244,7 +246,8 @@ def main():
             row[i].number_format = '#,##0.00'
         row[6].number_format = '0%'
         row[12].number_format = '0.00%'
-    for i, w in enumerate([16, 22, 50, 9, 10, 11, 7, 9, 9, 11, 11, 11, 9, 14, 11], 1):
+        row[15].number_format = '0.00%'
+    for i, w in enumerate([16, 22, 50, 9, 10, 11, 7, 9, 9, 11, 11, 11, 9, 14, 11, 13], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = 'C2'
     ws.auto_filter.ref = ws.dimensions
