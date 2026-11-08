@@ -1,9 +1,9 @@
 """Menu do ml-margem: setas para escolher, Enter para confirmar, Ctrl+C para voltar.
 
-Uso (no servidor):  .venv/bin/python tui.py
+Uso (no servidor):  ./run.sh   (ou .venv/bin/python tui.py)
 
 Roda o margem.py, o custo.py e o authorize.py com os argumentos certos, mostra o estado
-da coleta, das planilhas e do token, e muda as configurações do .env.
+da última planilha e muda as configurações do .env. As opções de diagnóstico ficam em "Avançado".
 """
 import glob
 import json
@@ -25,6 +25,7 @@ ENV = BASE / '.env'
 ESTILO = questionary.Style([('qmark', 'fg:#4ea1d3 bold'), ('pointer', 'fg:#4ea1d3 bold'),
                             ('highlighted', 'fg:#4ea1d3 bold'), ('answer', 'fg:#7bc96f bold')])
 VOLTAR = '__voltar__'
+NEGRITO, AMARELO, VERDE, CINZA, FIM = '\033[1m', '\033[33m', '\033[32m', '\033[2m', '\033[0m'
 
 
 # ---------------------------------------------------------------- estado
@@ -53,6 +54,10 @@ def gravar_env(chave, valor):
         f.write('\n'.join(linhas) + '\n')
 
 
+def margem_meta(env=None):
+    return float((env or ler_env()).get('MARGEM_META', '0.18').replace(',', '.'))
+
+
 def coleta_atual():
     """Estado da coleta em data/margem.db: None, ou dict com inicio, feitos, total, concluida."""
     db_path = BASE / 'data' / 'margem.db'
@@ -69,6 +74,11 @@ def coleta_atual():
             'concluida': meta.get('concluida') == '1', 'status': meta.get('status', 'todos')}
 
 
+def coleta_parada():
+    c = coleta_atual()
+    return c if c and not c['concluida'] else None
+
+
 def planilhas(prefixo):
     return sorted(glob.glob(str(BASE / 'saidas' / f'{prefixo}-*.xlsx')), reverse=True)
 
@@ -78,45 +88,42 @@ def quando(arq):
 
 
 def token():
+    """(ok, descrição) do token do ML."""
     arq = BASE / 'data' / 'tokens.json'
     if not arq.exists():
-        return 'sem autorização (use "Autorizar app no ML")'
+        return False, 'o app ainda não foi autorizado no ML'
     try:
         t = json.loads(arq.read_text(encoding='utf-8'))
     except ValueError:
-        return 'tokens.json ilegível'
+        return False, 'o arquivo do token está ilegível: autorize o app de novo'
     if not t.get('refresh_token'):
-        return 'sem refresh token (autorize de novo)'
+        return False, 'o token não renova sozinho: autorize o app de novo'
     resto = t.get('expires_at', 0) - time.time()
-    return f'ok, renova sozinho (atual vale mais {resto / 3600:.1f} h)' if resto > 0 else 'ok, renova na próxima coleta'
+    return True, (f'ok, renova sozinho (o atual vale mais {resto / 3600:.1f} h)' if resto > 0
+                  else 'ok, renova na próxima coleta')
 
 
 def cabecalho():
     print('\033[2J\033[H', end='')  # limpa a tela
-    env = ler_env()
-    c = coleta_atual()
-    if c is None:
-        estado = 'nenhuma'
-    elif c['concluida']:
-        estado = f'concluída ({c["total"]} anúncios, iniciada em {c["inicio"]})'
-    else:
-        estado = f'PARADA em {c["feitos"]}/{c["total"]} (iniciada em {c["inicio"]}) — dá para continuar'
-    ult_m, ult_c = planilhas('margem')[:1], planilhas('custo')[:1]
-    print('\033[1m ml-margem\033[0m')
-    print(f'  Coleta ........ {estado}')
-    print(f'  Última coleta . {Path(ult_m[0]).name + "  (" + quando(ult_m[0]) + ")" if ult_m else "nenhuma"}')
-    print(f'  Último custo .. {Path(ult_c[0]).name + "  (" + quando(ult_c[0]) + ")" if ult_c else "nenhum"}')
-    print(f'  Margem alvo ... {float(env.get("MARGEM_META", "0.18").replace(",", ".")):.0%}'
-          f'   |   Limite: {env.get("ML_MAX_RPS", "2")} req/s')
-    print(f'  Token do ML ... {token()}')
+    print(f'{NEGRITO} ml-margem{FIM}  {CINZA}margem e preço sugerido dos anúncios do ML{FIM}\n')
+    ult = planilhas('custo')[:1]
+    print(f'  Última planilha  {Path(ult[0]).name + "  (" + quando(ult[0]) + ")" if ult else "nenhuma ainda"}')
+    print(f'  Margem alvo      {margem_meta():.0%}')
+    c = coleta_parada()
+    if c:
+        print(f'\n  {AMARELO}! Atualização interrompida em {c["feitos"]}/{c["total"]} anúncios: '
+              f'dá para continuar de onde parou.{FIM}')
+    ok, desc = token()
+    if not ok:
+        print(f'\n  {AMARELO}! Acesso ao ML: {desc}.{FIM}')
     print()
 
 
 # ---------------------------------------------------------------- ações
 
-def rodar(*args):
+def rodar(titulo, *args):
     """Roda um dos scripts com a saída direto na tela. Ctrl+C interrompe só o script."""
-    print(f'\n\033[2m$ {Path(PY).name} {" ".join(args)}\033[0m\n')
+    print(f'\n{NEGRITO}{titulo}{FIM}\n')
     proc = subprocess.Popen([PY, *args], cwd=BASE)
     try:
         proc.wait()
@@ -130,61 +137,37 @@ def pausa():
     questionary.press_any_key_to_continue('Pressione qualquer tecla para voltar ao menu...').ask()
 
 
-def acao_coletar():
-    c = coleta_atual()
-    if c and not c['concluida']:
-        esc = questionary.select(
-            f'Existe uma coleta parada em {c["feitos"]}/{c["total"]}:',
-            choices=[Choice('Continuar de onde parou', 'continuar'),
-                     Choice('Descartar e começar do zero', 'novo'),
-                     Choice('Voltar', VOLTAR)], style=ESTILO).ask()
-        if esc in (None, VOLTAR):
-            return
-        rodar('margem.py', *(['--novo'] if esc == 'novo' else []))
-    else:
-        esc = questionary.select(
-            'Quais anúncios coletar?',
-            choices=[Choice('Todos', 'todos'), Choice('Só ativos', 'active'), Choice('Só pausados', 'paused'),
-                     Choice('Voltar', VOLTAR)], style=ESTILO).ask()
-        if esc in (None, VOLTAR):
-            return
-        rodar('margem.py', '--status', esc)
-    if questionary.confirm('Calcular custo e margem com essa coleta agora?', default=True, style=ESTILO).ask():
-        rodar('custo.py')
-    pausa()
-
-
-def acao_custo():
-    coletas = planilhas('margem')
-    if not coletas:
-        print('Nenhuma coleta ainda: use "Coletar anúncios do ML" primeiro.')
+def coletar_e_calcular(*args_coleta):
+    """Coleta e, se a coleta terminar bem, já gera a planilha de margem."""
+    if rodar('Buscando os anúncios no ML...', 'margem.py', *args_coleta) != 0:
+        print(f'\n{AMARELO}A busca parou antes do fim. O que já foi feito está salvo: '
+              f'escolha "Continuar a atualização" no menu.{FIM}')
         return pausa()
-    escolhas = [Choice(f'{Path(a).name}  ({quando(a)})' + ('  ← mais recente' if i == 0 else ''), a)
-                for i, a in enumerate(coletas[:10])]
-    arq = questionary.select('Com qual coleta?', choices=escolhas + [Choice('Voltar', VOLTAR)], style=ESTILO).ask()
-    if arq in (None, VOLTAR):
-        return
-    rodar('custo.py', '--coleta', arq)
+    if rodar('Calculando custo e margem...', 'custo.py') == 0:
+        print(f'\n{VERDE}Pronto!{FIM}')
     pausa()
 
 
-def acao_teste():
-    ids = questionary.text('Códigos dos anúncios, separados por vírgula (ex.: MLB6926478482,MLB6624766636):',
-                           validate=lambda t: bool(re.fullmatch(r'\s*(MLB)?\d+(\s*,\s*(MLB)?\d+)*\s*', t, re.I))
-                           or 'Use códigos como MLB6926478482, separados por vírgula',
-                           style=ESTILO).ask()
-    if not ids:
+def acao_atualizar():
+    c = coleta_parada()
+    if not c:
+        return coletar_e_calcular('--status', 'todos')
+    esc = questionary.select(
+        f'A última atualização parou em {c["feitos"]}/{c["total"]} anúncios:',
+        choices=[Choice('Continuar de onde parou', 'continuar'),
+                 Choice('Começar do zero', 'novo'),
+                 Choice('Voltar', VOLTAR)], style=ESTILO).ask()
+    if esc in (None, VOLTAR):
         return
-    rodar('margem.py', '--ids', re.sub(r'\s+', '', ids))
-    pausa()
+    # mesmo status da busca parada: com outro status o margem.py descartaria o progresso
+    coletar_e_calcular('--status', c['status'], *(['--novo'] if esc == 'novo' else []))
 
 
-def acao_exportar():
-    c = coleta_atual()
-    if c is None:
-        print('Nenhuma coleta para exportar.')
+def acao_recalcular():
+    if not planilhas('margem'):
+        print('Ainda não há anúncios buscados: use "Atualizar margens" primeiro.')
         return pausa()
-    rodar('margem.py', '--exportar')
+    rodar('Calculando custo e margem com a última busca...', 'custo.py')
     pausa()
 
 
@@ -198,31 +181,74 @@ def numero_valido(minimo, maximo):
     return v
 
 
-def acao_config():
-    while True:
-        env = ler_env()
-        meta = float(env.get('MARGEM_META', '0.18').replace(',', '.'))
-        esc = questionary.select('Configurações:', choices=[
-            Choice(f'Margem alvo do preço sugerido: {meta:.0%}', 'meta'),
-            Choice(f'Limite de requisições por segundo: {env.get("ML_MAX_RPS", "2")}', 'rps'),
-            Choice('Voltar', VOLTAR)], style=ESTILO).ask()
-        if esc in (None, VOLTAR):
-            return
-        if esc == 'meta':
-            t = questionary.text('Margem alvo em % (ex.: 18):', default=f'{meta * 100:g}',
-                                 validate=numero_valido(1, 60), style=ESTILO).ask()
-            if t:
-                gravar_env('MARGEM_META', f'{float(t.replace(",", ".")) / 100:g}')
-                print('Salvo. Vale a partir do próximo cálculo de custo.')
-        else:
-            t = questionary.text('Requisições por segundo (ex.: 4):', default=env.get('ML_MAX_RPS', '2'),
-                                 validate=numero_valido(0.5, 10), style=ESTILO).ask()
-            if t:
-                gravar_env('ML_MAX_RPS', f'{float(t.replace(",", ".")):g}')
-                print('Salvo. Vale a partir da próxima coleta. Fique de olho nos "429 recebidos" no fim dela.')
+def acao_meta():
+    meta = margem_meta()
+    t = questionary.text('Nova margem alvo em % (ex.: 18):', default=f'{meta * 100:g}',
+                         validate=numero_valido(1, 60), style=ESTILO).ask()
+    if not t:
+        return
+    gravar_env('MARGEM_META', f'{float(t.replace(",", ".")) / 100:g}')
+    print('Salvo.')
+    if planilhas('margem') and questionary.confirm(
+            'Recalcular a planilha agora com a nova margem? (não busca no ML)',
+            default=True, style=ESTILO).ask():
+        acao_recalcular()
 
 
-def acao_log():
+def acao_autorizar():
+    if rodar('Gerando a URL de autorização...', 'authorize.py') != 0:
+        return pausa()
+    url = questionary.text('Depois de autorizar, cole aqui a URL para onde o ML redirecionou (vazio cancela):',
+                           style=ESTILO).ask()
+    if url:
+        rodar('Salvando o token...', 'authorize.py', url.strip())
+    pausa()
+
+
+# ---------------------------------------------------------------- avançado
+
+def av_status():
+    esc = questionary.select('Quais anúncios buscar?', choices=[
+        Choice('Só ativos', 'active'), Choice('Só pausados', 'paused'), Choice('Voltar', VOLTAR)],
+        style=ESTILO).ask()
+    if esc not in (None, VOLTAR):
+        coletar_e_calcular('--status', esc)
+
+
+def av_teste():
+    ids = questionary.text('Códigos dos anúncios, separados por vírgula (ex.: MLB6926478482,MLB6624766636):',
+                           validate=lambda t: bool(re.fullmatch(r'\s*(MLB)?\d+(\s*,\s*(MLB)?\d+)*\s*', t, re.I))
+                           or 'Use códigos como MLB6926478482, separados por vírgula',
+                           style=ESTILO).ask()
+    if not ids:
+        return
+    rodar('Testando com os anúncios informados...', 'margem.py', '--ids', re.sub(r'\s+', '', ids))
+    pausa()
+
+
+def av_coleta_antiga():
+    coletas = planilhas('margem')
+    if not coletas:
+        print('Ainda não há anúncios buscados.')
+        return pausa()
+    escolhas = [Choice(f'{Path(a).name}  ({quando(a)})' + ('  ← mais recente' if i == 0 else ''), a)
+                for i, a in enumerate(coletas[:10])]
+    arq = questionary.select('Com qual busca?', choices=escolhas + [Choice('Voltar', VOLTAR)], style=ESTILO).ask()
+    if arq in (None, VOLTAR):
+        return
+    rodar('Calculando custo e margem...', 'custo.py', '--coleta', arq)
+    pausa()
+
+
+def av_exportar():
+    if coleta_atual() is None:
+        print('Nenhuma busca para exportar.')
+        return pausa()
+    rodar('Gerando a planilha da busca atual...', 'margem.py', '--exportar')
+    pausa()
+
+
+def av_log():
     log = BASE / 'logs' / 'margem.log'
     if not log.exists():
         print('Ainda não há log.')
@@ -232,46 +258,75 @@ def acao_log():
     pausa()
 
 
-def acao_autorizar():
-    print('A autorização só é necessária se o ML recusar o acesso (ex.: 6 meses sem uso, permissão revogada).')
-    if not questionary.confirm('Gerar a URL de autorização?', default=False, style=ESTILO).ask():
-        return
-    if rodar('authorize.py') != 0:
-        return pausa()
-    url = questionary.text('Depois de autorizar, cole aqui a URL para onde o ML redirecionou (vazio cancela):',
-                           style=ESTILO).ask()
-    if url:
-        rodar('authorize.py', url.strip())
-    pausa()
+def av_rps():
+    env = ler_env()
+    t = questionary.text('Requisições por segundo na busca (ex.: 4):', default=env.get('ML_MAX_RPS', '2'),
+                         validate=numero_valido(0.5, 10), style=ESTILO).ask()
+    if t:
+        gravar_env('ML_MAX_RPS', f'{float(t.replace(",", ".")):g}')
+        print('Salvo. Vale a partir da próxima busca. Fique de olho nos "429 recebidos" no fim dela.')
+        pausa()
 
 
-ACOES = {
-    'coletar': acao_coletar, 'custo': acao_custo, 'teste': acao_teste, 'exportar': acao_exportar,
-    'config': acao_config, 'log': acao_log, 'autorizar': acao_autorizar,
-}
+def av_autorizar():
+    ok, desc = token()
+    print(f'Acesso ao ML: {desc}.')
+    print('Só é preciso autorizar de novo se o ML recusar o acesso (ex.: 6 meses sem uso, permissão revogada).')
+    if questionary.confirm('Gerar a URL de autorização?', default=not ok, style=ESTILO).ask():
+        acao_autorizar()
 
+
+def acao_avancado():
+    acoes = {'status': av_status, 'teste': av_teste, 'antiga': av_coleta_antiga, 'exportar': av_exportar,
+             'log': av_log, 'rps': av_rps, 'autorizar': av_autorizar}
+    while True:
+        cabecalho()
+        esc = questionary.select('Avançado:', choices=[
+            Choice('Atualizar só os ativos ou só os pausados', 'status'),
+            Choice('Testar com alguns anúncios', 'teste'),
+            Choice('Recalcular com uma busca mais antiga', 'antiga'),
+            Choice('Gerar a planilha da busca atual (sem chamar o ML)', 'exportar'),
+            Separator(),
+            Choice('Ver o log recente', 'log'),
+            Choice(f'Limite de requisições por segundo: {ler_env().get("ML_MAX_RPS", "2")}', 'rps'),
+            Choice('Acesso ao ML (token e reautorização)', 'autorizar'),
+            Separator(),
+            Choice('Voltar', VOLTAR),
+        ], style=ESTILO).ask()
+        if esc in (None, VOLTAR):
+            return
+        try:
+            acoes[esc]()
+        except KeyboardInterrupt:
+            pass
+
+
+# ---------------------------------------------------------------- menu
 
 def main():
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise SystemExit('O menu precisa de um terminal interativo (abra pelo SSH normal, não por pipe ou cron).')
+    acoes = {'atualizar': acao_atualizar, 'recalcular': acao_recalcular, 'meta': acao_meta,
+             'autorizar': acao_autorizar, 'avancado': acao_avancado}
     while True:
         cabecalho()
-        esc = questionary.select('O que fazer?', choices=[
-            Choice('Coletar anúncios do ML', 'coletar'),
-            Choice('Calcular custo e margem', 'custo'),
+        opcoes = []
+        if not token()[0]:
+            opcoes.append(Choice('Autorizar o app no ML', 'autorizar'))
+        opcoes += [
+            Choice('Continuar a atualização' if coleta_parada() else
+                   'Atualizar margens (busca no ML e gera a planilha)', 'atualizar'),
+            Choice('Recalcular sem buscar no ML (após mudar preços ou apelidos)', 'recalcular'),
+            Choice(f'Mudar a margem alvo ({margem_meta():.0%})', 'meta'),
             Separator(),
-            Choice('Testar com alguns anúncios', 'teste'),
-            Choice('Gerar planilha da coleta atual (sem chamar o ML)', 'exportar'),
-            Choice('Ver o log recente', 'log'),
-            Separator(),
-            Choice('Configurações', 'config'),
-            Choice('Autorizar app no ML', 'autorizar'),
+            Choice('Avançado...', 'avancado'),
             Choice('Sair', 'sair'),
-        ], style=ESTILO, instruction='(setas e Enter)').ask()
+        ]
+        esc = questionary.select('O que fazer?', choices=opcoes, style=ESTILO, instruction='(setas e Enter)').ask()
         if esc in (None, 'sair'):
             break
         try:
-            ACOES[esc]()
+            acoes[esc]()
         except KeyboardInterrupt:
             pass
 

@@ -18,7 +18,7 @@ cp .env.example .env      # e preencha com os dados do app do ML
 ./run.sh                  # cria a .venv e instala as dependências na primeira vez
 ```
 
-No menu, use **Autorizar app no ML** uma vez para gerar o token da conta. Depois disso ele é renovado automaticamente.
+No menu, use **Autorizar o app no ML** uma vez para gerar o token da conta. Depois disso ele é renovado automaticamente.
 
 ### `.env`
 
@@ -38,11 +38,12 @@ No menu, use **Autorizar app no ML** uma vez para gerar o token da conta. Depois
 
 Abre o menu (setas e Enter, Ctrl+C volta):
 
-- **Coletar anúncios do ML**: todos, só ativos ou só pausados; continua uma coleta interrompida; ao final, oferece calcular o custo.
-- **Calcular custo e margem**: escolhe a coleta (a mais recente vem marcada).
-- **Testar com alguns anúncios**: coleta só os códigos informados, sem misturar com a coleta completa.
-- **Gerar planilha da coleta atual**: exporta o que já foi coletado, sem chamar a API.
-- **Ver o log recente**, **Configurações** (margem alvo e limite de requisições) e **Autorizar app no ML**.
+- **Atualizar margens**: busca todos os anúncios no ML e já gera a planilha de custo e margem. Se a busca for interrompida, a opção vira **Continuar a atualização**.
+- **Recalcular sem buscar no ML**: gera a planilha de novo com a última busca, depois de mudar o `precos.xlsx` ou o `apelidos.xlsx`.
+- **Mudar a margem alvo**: grava a `MARGEM_META` e oferece recalcular a planilha.
+- **Avançado**: buscar só ativos ou só pausados, testar com alguns anúncios, recalcular com uma busca mais antiga, gerar a planilha da busca atual sem chamar a API, ver o log, mudar o limite de requisições e reautorizar o app.
+
+Enquanto o app não estiver autorizado, o menu mostra **Autorizar o app no ML** no topo.
 
 Os scripts também podem ser rodados direto, com o Python da venv:
 
