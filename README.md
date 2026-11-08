@@ -29,6 +29,7 @@ No menu, use **Autorizar o app no ML** uma vez para gerar o token da conta. Depo
 | `ML_PKCE` | `1` se o PKCE estiver ligado no app, senão `0` |
 | `ML_MAX_RPS` | requisições por segundo da coleta (padrão 2) |
 | `MARGEM_META` | margem alvo do preço sugerido (`0.18` = 18%) |
+| `MARGEM_META_ATACADO` | margem alvo do preço de atacado (`0.175` = 17,5%) |
 
 ## Uso
 
@@ -112,6 +113,7 @@ Se faltar o preço de alguma peça, o anúncio fica sem custo e o resumo na tela
 | `preco_sugerido` | preço que dá a `MARGEM_META`; nos anúncios `so_gratis`, o preço atual |
 | `diferenca` | preco_sugerido − preco (positivo: precisa subir) |
 | `diferenca_pct` | diferenca ÷ preco em %, em valor absoluto (sempre positivo) |
+| `preco_sugerido_atacado`, `diferenca_atacado`, `diferenca_pct_atacado` | o mesmo das três anteriores, com a `MARGEM_META_ATACADO` |
 
 Da `custo_desc` em diante são fórmulas: ao corrigir um custo na planilha, o resto recalcula.
 
