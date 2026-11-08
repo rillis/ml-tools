@@ -17,7 +17,7 @@ Como o SKU do anúncio vira custo (nesta ordem):
      e abrindo a barra dentro de um trecho ("TP-036.M/F.GOLF" = TP-036.M.GOLF + TP-036.F.GOLF)
 Se alguma peça não tiver preço, o anúncio fica sem custo e o resumo na tela diz qual faltou.
 A coluna diferenca é preco_sugerido - preco (positivo: precisa subir o preço);
-diferenca_pct é diferenca / preco.
+diferenca_pct é |diferenca| / preco (sempre positivo).
 A coluna so_gratis marca anúncios só com itens grátis: neles o preco_sugerido é o preço atual.
 """
 import argparse
@@ -235,7 +235,7 @@ def main():
             # anúncio só com itens grátis: a margem não importa, mantém o preço atual
             f'=IF(E{n}="sim",F{n},ROUND((H{n}+I{n}+K{n})/(1-G{n}-{META}),2))' if tem else None,
             f'=N{n}-F{n}' if tem else None,  # preco_sugerido - preco
-            f'=IF(F{n}>0,O{n}/F{n},"")' if tem else None,  # diferenca / preco
+            f'=IF(F{n}>0,ABS(O{n})/F{n},"")' if tem else None,  # |diferenca| / preco
         ])
 
     ult = ws.max_row

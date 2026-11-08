@@ -111,7 +111,7 @@ Se faltar o preço de alguma peça, o anúncio fica sem custo e o resumo na tela
 | `margem` | lucro ÷ preço (vermelho abaixo de META − 3 p.p., amarelo acima de META + 3 p.p.) |
 | `preco_sugerido` | preço que dá a `MARGEM_META`; nos anúncios `so_gratis`, o preço atual |
 | `diferenca` | preco_sugerido − preco (positivo: precisa subir) |
-| `diferenca_pct` | diferenca ÷ preco, em % |
+| `diferenca_pct` | diferenca ÷ preco em %, em valor absoluto (sempre positivo) |
 
 Da `custo_desc` em diante são fórmulas: ao corrigir um custo na planilha, o resto recalcula.
 
