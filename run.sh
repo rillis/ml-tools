@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Abre o menu do ml-margem com o Python da venv da pasta.
+# Abre o menu do ml-tools com o Python da venv da pasta.
 # Os scripts que o menu chama (margem.py, custo.py, skus.py, envio.py, authorize.py) usam o mesmo Python.
 # Se a venv não existir, cria e instala o requirements.txt antes.
 set -euo pipefail

@@ -1,4 +1,4 @@
-"""Menu do ml-margem: setas para escolher, Enter para confirmar, Ctrl+C para voltar.
+"""Menu do ml-tools: setas para escolher, Enter para confirmar, Ctrl+C para voltar.
 
 Uso (no servidor):  ./run.sh   (ou .venv/bin/python tui.py)
 
@@ -113,7 +113,7 @@ def token():
 
 def cabecalho():
     print('\033[2J\033[H', end='')  # limpa a tela
-    print(f'{NEGRITO} ml-margem{FIM}  {CINZA}margem e preço sugerido dos anúncios do ML{FIM}\n')
+    print(f'{NEGRITO} ml-tools{FIM}  {CINZA}ferramentas para os anúncios do ML{FIM}\n')
     ult = planilhas('custo')[:1]
     print(f'  Última planilha  {Path(ult[0]).name + "  (" + quando(ult[0]) + ")" if ult else "nenhuma ainda"}')
     print(f'  Margem alvo      {pct(margem_meta())}  (atacado {pct(margem_atacado())})')

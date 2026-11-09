@@ -1,6 +1,6 @@
-# ml-margem
+# ml-tools
 
-Coleta os anúncios da conta do Mercado Livre e calcula custo, margem e preço sugerido de cada um, a partir da tabela de preços do fornecedor.
+Ferramentas para os anúncios da conta do Mercado Livre. A principal coleta os anúncios e calcula custo, margem e preço sugerido de cada um, a partir da tabela de preços do fornecedor.
 
 O fluxo de margem tem duas etapas:
 
