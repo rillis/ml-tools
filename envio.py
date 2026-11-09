@@ -1,20 +1,23 @@
-"""Soma os SKUs dos PDFs de envio do Full (instruções de preparação) que estão em input/.
+"""Soma os SKUs de um PDF de envio do Full (instruções de preparação) da pasta input/.
 
-Uso (no servidor):  .venv/bin/python envio.py [--manter]
+Uso (no servidor):  .venv/bin/python envio.py [ARQUIVO.pdf]
 
+Sem ARQUIVO, mostra os 3 PDFs mais recentes de input/ para escolher um.
 Separa os kits ("KF-216+KA-035", "3xKA-250") em peças, junta os SKUs iguais (ignora maiúsculas)
 e imprime um por linha, como "11x KF-216", em ordem alfabética.
-Confere o número de produtos e de unidades com o cabeçalho do PDF; se bater, apaga o PDF
-(--manter não apaga). Se não bater, mostra o erro e mantém o arquivo.
-Com mais de um PDF, cada um sai separado, com o número do frete em cima.
+Confere o número de produtos e de unidades com o cabeçalho do PDF; se não bater, mostra o erro.
+O PDF não é apagado.
 """
 import argparse
 import logging
 import re
 import sys
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
+import questionary
+from questionary import Choice
 from pypdf import PdfReader
 
 BASE = Path(__file__).resolve().parent
@@ -56,30 +59,31 @@ def somar(linhas):
     return total
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--manter', action='store_true', help='não apaga o PDF depois de ler')
-    args = ap.parse_args()
-
+def escolher():
+    """Um dos 3 PDFs mais recentes de input/ (ou None se cancelar)."""
     ENTRADA.mkdir(exist_ok=True)
-    pdfs = sorted(ENTRADA.glob('*.pdf')) + sorted(ENTRADA.glob('*.PDF'))
+    pdfs = sorted((p for p in ENTRADA.iterdir() if p.suffix.lower() == '.pdf'),
+                  key=lambda p: p.stat().st_mtime, reverse=True)[:3]
     if not pdfs:
         sys.exit(f'Nenhum PDF em {ENTRADA}')
-    erro = False
-    for i, pdf in enumerate(pdfs):
-        try:
-            frete, linhas = ler(pdf)
-        except Exception as e:  # PDF ilegível ou fora do formato: mantém o arquivo
-            print(f'{pdf.name}: {e}. O arquivo foi mantido.', file=sys.stderr)
-            erro = True
-            continue
-        total = somar(linhas)
-        if len(pdfs) > 1:
-            print(('\n' if i else '') + f'Frete #{frete}')
-        print('\n'.join(f'{total[s]}x {s}' for s in sorted(total)))
-        if not args.manter:
-            pdf.unlink()
-    sys.exit(1 if erro else 0)
+    return questionary.select('Qual PDF de envio?', choices=[
+        Choice(f'{p.name}  ({datetime.fromtimestamp(p.stat().st_mtime):%Y-%m-%d %H:%M})', p) for p in pdfs]).ask()
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('arquivo', nargs='?', help='PDF de envio (padrão: escolher entre os 3 mais recentes de input/)')
+    args = ap.parse_args()
+
+    pdf = Path(args.arquivo) if args.arquivo else escolher()
+    if pdf is None:
+        sys.exit(130)
+    try:
+        _, linhas = ler(pdf)
+    except Exception as e:  # PDF ilegível ou fora do formato
+        sys.exit(f'{pdf.name}: {e}')
+    total = somar(linhas)
+    print('\n'.join(f'{total[s]}x {s}' for s in sorted(total)))
 
 
 if __name__ == '__main__':
