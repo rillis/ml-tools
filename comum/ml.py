@@ -1,6 +1,6 @@
-"""Cliente da API do Mercado Livre do app de margem (separado do ml-jrf).
+"""Cliente da API do Mercado Livre do ml-tools (app separado do ml-jrf).
 
-- Lê ML_APP_ID, ML_SECRET_KEY e ML_REDIRECT_URI do .env desta pasta.
+- Lê ML_APP_ID, ML_SECRET_KEY e ML_REDIRECT_URI do .env da raiz do projeto.
 - Guarda os tokens em data/tokens.json e renova sozinho quando o access token vence.
 - Faz no máximo ML_MAX_RPS requisições por segundo e espera quando o ML responde 429.
 """
@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent.parent  # raiz do projeto
 API = 'https://api.mercadolibre.com'
 TOKEN_URL = API + '/oauth/token'
 AUTH_URL = 'https://auth.mercadolivre.com.br/authorization'
@@ -38,7 +38,7 @@ REDIRECT_URI = ENV.get('ML_REDIRECT_URI', '')
 MAX_RPS = float(ENV.get('ML_MAX_RPS', '2'))
 TOKENS_FILE = BASE / 'data' / 'tokens.json'
 
-log = logging.getLogger('margem.ml')
+log = logging.getLogger('margem.ml')  # filho do log da coleta: os avisos vão para o margem.log
 
 
 class MLError(Exception):
@@ -76,8 +76,24 @@ def save_tokens(js):
 
 def read_tokens():
     if not TOKENS_FILE.exists():
-        raise RuntimeError('Sem tokens: rode primeiro  python authorize.py')
+        raise RuntimeError('Sem tokens: use "Autorizar o app no ML" no menu (ou  python -m comum.autorizar)')
     return json.loads(TOKENS_FILE.read_text(encoding='utf-8'))
+
+
+LOTE = 20  # máximo de anúncios por chamada do /items?ids=
+
+
+def sku_de(body):
+    """SKU do anúncio: atributo SELLER_SKU ou, nos anúncios antigos, o seller_custom_field."""
+    for a in body.get('attributes') or []:
+        if a.get('id') == 'SELLER_SKU' and a.get('value_name'):
+            return a['value_name']
+    return body.get('seller_custom_field') or ''
+
+
+def titulo_de(body):
+    """Nome sem a variação (family_name); se o anúncio não tiver, o título completo."""
+    return (body.get('family_name') or body.get('title') or '').strip()
 
 
 class MLClient:

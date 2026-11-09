@@ -1,9 +1,13 @@
 """Menu do ml-tools: setas para escolher, Enter para confirmar, Ctrl+C para voltar.
 
-Uso (no servidor):  ./run.sh   (ou .venv/bin/python tui.py)
+Uso (no servidor):  ./run.sh   (ou .venv/bin/python menu.py)
 
-Roda o margem.py, o custo.py, o skus.py, o envio.py e o authorize.py com os argumentos certos, mostra o estado
-da última planilha e muda as configurações do .env. As opções de diagnóstico ficam em "Avançado".
+A tela inicial lista os módulos; cada um abre um submenu:
+  - Margem e preço sugerido: margem.coleta e margem.custo, margens alvo e o "Avançado" da coleta
+  - Comparar SKUs com os anúncios: skus
+  - Somar SKUs do PDF de envio: envio
+  - Acesso ao ML e configurações: comum.autorizar e o limite de requisições
+Os módulos rodam com  python -m <módulo>  na raiz do projeto.
 """
 import glob
 import json
@@ -22,6 +26,7 @@ from questionary import Choice, Separator
 BASE = Path(__file__).resolve().parent
 PY = sys.executable
 ENV = BASE / '.env'
+MARGEM = BASE / 'margem'
 ESTILO = questionary.Style([('qmark', 'fg:#4ea1d3 bold'), ('pointer', 'fg:#4ea1d3 bold'),
                             ('highlighted', 'fg:#4ea1d3 bold'), ('answer', 'fg:#7bc96f bold')])
 VOLTAR = '__voltar__'
@@ -67,8 +72,8 @@ def pct(x):
 
 
 def coleta_atual():
-    """Estado da coleta em data/margem.db: None, ou dict com inicio, feitos, total, concluida."""
-    db_path = BASE / 'data' / 'margem.db'
+    """Estado da coleta em margem/data/margem.db: None, ou dict com inicio, feitos, total, concluida."""
+    db_path = MARGEM / 'data' / 'margem.db'
     if not db_path.exists():
         return None
     try:
@@ -88,7 +93,7 @@ def coleta_parada():
 
 
 def planilhas(prefixo):
-    return sorted(glob.glob(str(BASE / 'saidas' / f'{prefixo}-*.xlsx')), reverse=True)
+    return sorted(glob.glob(str(MARGEM / 'saidas' / f'{prefixo}-*.xlsx')), reverse=True)
 
 
 def quando(arq):
@@ -108,85 +113,56 @@ def token():
         return False, 'o token não renova sozinho: autorize o app de novo'
     resto = t.get('expires_at', 0) - time.time()
     return True, (f'ok, renova sozinho (o atual vale mais {resto / 3600:.1f} h)' if resto > 0
-                  else 'ok, renova na próxima coleta')
+                  else 'ok, renova na próxima chamada')
 
 
-def cabecalho():
+def cabecalho(secao=None):
     print('\033[2J\033[H', end='')  # limpa a tela
-    print(f'{NEGRITO} ml-tools{FIM}  {CINZA}ferramentas para os anúncios do ML{FIM}\n')
-    ult = planilhas('custo')[:1]
-    print(f'  Última planilha  {Path(ult[0]).name + "  (" + quando(ult[0]) + ")" if ult else "nenhuma ainda"}')
-    print(f'  Margem alvo      {pct(margem_meta())}  (atacado {pct(margem_atacado())})')
+    print(f'{NEGRITO} ml-tools{FIM}' + (f'  {CINZA}›{FIM}  {NEGRITO}{secao}{FIM}' if secao
+                                        else f'  {CINZA}ferramentas para os anúncios do ML{FIM}') + '\n')
+    if secao == 'Margem':
+        ult = planilhas('custo')[:1]
+        print(f'  Última planilha  {Path(ult[0]).name + "  (" + quando(ult[0]) + ")" if ult else "nenhuma ainda"}')
+        print(f'  Margem alvo      {pct(margem_meta())}  (atacado {pct(margem_atacado())})\n')
     c = coleta_parada()
     if c:
-        print(f'\n  {AMARELO}! Atualização interrompida em {c["feitos"]}/{c["total"]} anúncios: '
-              f'dá para continuar de onde parou.{FIM}')
+        print(f'  {AMARELO}! Atualização da margem interrompida em {c["feitos"]}/{c["total"]} anúncios: '
+              f'dá para continuar de onde parou.{FIM}\n')
     ok, desc = token()
     if not ok:
-        print(f'\n  {AMARELO}! Acesso ao ML: {desc}.{FIM}')
-    print()
+        print(f'  {AMARELO}! Acesso ao ML: {desc}.{FIM}\n')
 
 
-# ---------------------------------------------------------------- ações
+def submenu(secao, pergunta, opcoes, acoes):
+    """Repete o submenu até escolher Voltar. opcoes é uma função, para os rótulos se atualizarem."""
+    while True:
+        cabecalho(secao)
+        esc = questionary.select(pergunta, choices=opcoes() + [Separator(), Choice('Voltar', VOLTAR)],
+                                 style=ESTILO).ask()
+        if esc in (None, VOLTAR):
+            return
+        try:
+            acoes[esc]()
+        except KeyboardInterrupt:
+            pass
+
+
+# ---------------------------------------------------------------- ações comuns
 
 def rodar(titulo, *args):
-    """Roda um dos scripts com a saída direto na tela. Ctrl+C interrompe só o script."""
+    """Roda um módulo com a saída direto na tela. Ctrl+C interrompe só o módulo."""
     print(f'\n{NEGRITO}{titulo}{FIM}\n')
     proc = subprocess.Popen([PY, *args], cwd=BASE)
     try:
         proc.wait()
     except KeyboardInterrupt:
-        proc.wait()  # o script também recebe o Ctrl+C e salva o que fez
+        proc.wait()  # o módulo também recebe o Ctrl+C e salva o que fez
     return proc.returncode
 
 
 def pausa():
     print()
     questionary.press_any_key_to_continue('Pressione qualquer tecla para voltar ao menu...').ask()
-
-
-def coletar_e_calcular(*args_coleta):
-    """Coleta e, se a coleta terminar bem, já gera a planilha de margem."""
-    if rodar('Buscando os anúncios no ML...', 'margem.py', *args_coleta) != 0:
-        print(f'\n{AMARELO}A busca parou antes do fim. O que já foi feito está salvo: '
-              f'escolha "Continuar a atualização" no menu.{FIM}')
-        return pausa()
-    if rodar('Calculando custo e margem...', 'custo.py') == 0:
-        print(f'\n{VERDE}Pronto!{FIM}')
-    pausa()
-
-
-def acao_atualizar():
-    c = coleta_parada()
-    if not c:
-        return coletar_e_calcular('--status', 'todos')
-    esc = questionary.select(
-        f'A última atualização parou em {c["feitos"]}/{c["total"]} anúncios:',
-        choices=[Choice('Continuar de onde parou', 'continuar'),
-                 Choice('Começar do zero', 'novo'),
-                 Choice('Voltar', VOLTAR)], style=ESTILO).ask()
-    if esc in (None, VOLTAR):
-        return
-    # mesmo status da busca parada: com outro status o margem.py descartaria o progresso
-    coletar_e_calcular('--status', c['status'], *(['--novo'] if esc == 'novo' else []))
-
-
-def acao_recalcular():
-    if not planilhas('margem'):
-        print('Ainda não há anúncios buscados: use "Atualizar margens" primeiro.')
-        return pausa()
-    rodar('Calculando custo e margem com a última busca...', 'custo.py')
-    pausa()
-
-
-def acao_skus():
-    rodar('Comparando os SKUs da tabela com os anúncios do ML...', 'skus.py')
-    pausa()
-
-
-def acao_envio():
-    rodar('Somando os SKUs dos PDFs de envio em input/...', 'envio.py')
-    pausa()
 
 
 def numero_valido(minimo, maximo):
@@ -199,7 +175,43 @@ def numero_valido(minimo, maximo):
     return v
 
 
-def acao_meta(chave='MARGEM_META', atual=None, nome='margem alvo', exemplo='18'):
+# ---------------------------------------------------------------- margem
+
+def coletar_e_calcular(*args_coleta):
+    """Coleta e, se a coleta terminar bem, já gera a planilha de margem."""
+    if rodar('Buscando os anúncios no ML...', '-m', 'margem.coleta', *args_coleta) != 0:
+        print(f'\n{AMARELO}A busca parou antes do fim. O que já foi feito está salvo: '
+              f'escolha "Continuar a atualização" no menu da margem.{FIM}')
+        return pausa()
+    if rodar('Calculando custo e margem...', '-m', 'margem.custo') == 0:
+        print(f'\n{VERDE}Pronto!{FIM}')
+    pausa()
+
+
+def mg_atualizar():
+    c = coleta_parada()
+    if not c:
+        return coletar_e_calcular('--status', 'todos')
+    esc = questionary.select(
+        f'A última atualização parou em {c["feitos"]}/{c["total"]} anúncios:',
+        choices=[Choice('Continuar de onde parou', 'continuar'),
+                 Choice('Começar do zero', 'novo'),
+                 Choice('Voltar', VOLTAR)], style=ESTILO).ask()
+    if esc in (None, VOLTAR):
+        return
+    # mesmo status da busca parada: com outro status a coleta descartaria o progresso
+    coletar_e_calcular('--status', c['status'], *(['--novo'] if esc == 'novo' else []))
+
+
+def mg_recalcular():
+    if not planilhas('margem'):
+        print('Ainda não há anúncios buscados: use "Atualizar margens" primeiro.')
+        return pausa()
+    rodar('Calculando custo e margem com a última busca...', '-m', 'margem.custo')
+    pausa()
+
+
+def mg_meta(chave='MARGEM_META', atual=None, nome='margem alvo', exemplo='18'):
     meta = margem_meta() if atual is None else atual
     t = questionary.text(f'Nova {nome} em % (ex.: {exemplo}):', default=f'{meta * 100:g}',
                          validate=numero_valido(1, 60), style=ESTILO).ask()
@@ -210,26 +222,14 @@ def acao_meta(chave='MARGEM_META', atual=None, nome='margem alvo', exemplo='18')
     if planilhas('margem') and questionary.confirm(
             'Recalcular a planilha agora com a nova margem? (não busca no ML)',
             default=True, style=ESTILO).ask():
-        acao_recalcular()
+        mg_recalcular()
 
 
-def acao_meta_atacado():
-    acao_meta('MARGEM_META_ATACADO', margem_atacado(), 'margem do atacado', '17.5')
+def mg_meta_atacado():
+    mg_meta('MARGEM_META_ATACADO', margem_atacado(), 'margem do atacado', '17.5')
 
 
-def acao_autorizar():
-    if rodar('Gerando a URL de autorização...', 'authorize.py') != 0:
-        return pausa()
-    url = questionary.text('Depois de autorizar, cole aqui a URL para onde o ML redirecionou (vazio cancela):',
-                           style=ESTILO).ask()
-    if url:
-        rodar('Salvando o token...', 'authorize.py', url.strip())
-    pausa()
-
-
-# ---------------------------------------------------------------- avançado
-
-def av_status():
+def mg_status():
     esc = questionary.select('Quais anúncios buscar?', choices=[
         Choice('Só ativos', 'active'), Choice('Só pausados', 'paused'), Choice('Voltar', VOLTAR)],
         style=ESTILO).ask()
@@ -237,18 +237,18 @@ def av_status():
         coletar_e_calcular('--status', esc)
 
 
-def av_teste():
+def mg_teste():
     ids = questionary.text('Códigos dos anúncios, separados por vírgula (ex.: MLB6926478482,MLB6624766636):',
                            validate=lambda t: bool(re.fullmatch(r'\s*(MLB)?\d+(\s*,\s*(MLB)?\d+)*\s*', t, re.I))
                            or 'Use códigos como MLB6926478482, separados por vírgula',
                            style=ESTILO).ask()
     if not ids:
         return
-    rodar('Testando com os anúncios informados...', 'margem.py', '--ids', re.sub(r'\s+', '', ids))
+    rodar('Testando com os anúncios informados...', '-m', 'margem.coleta', '--ids', re.sub(r'\s+', '', ids))
     pausa()
 
 
-def av_coleta_antiga():
+def mg_coleta_antiga():
     coletas = planilhas('margem')
     if not coletas:
         print('Ainda não há anúncios buscados.')
@@ -258,20 +258,20 @@ def av_coleta_antiga():
     arq = questionary.select('Com qual busca?', choices=escolhas + [Choice('Voltar', VOLTAR)], style=ESTILO).ask()
     if arq in (None, VOLTAR):
         return
-    rodar('Calculando custo e margem...', 'custo.py', '--coleta', arq)
+    rodar('Calculando custo e margem...', '-m', 'margem.custo', '--coleta', arq)
     pausa()
 
 
-def av_exportar():
+def mg_exportar():
     if coleta_atual() is None:
         print('Nenhuma busca para exportar.')
         return pausa()
-    rodar('Gerando a planilha da busca atual...', 'margem.py', '--exportar')
+    rodar('Gerando a planilha da busca atual...', '-m', 'margem.coleta', '--exportar')
     pausa()
 
 
-def av_log():
-    log = BASE / 'logs' / 'margem.log'
+def mg_log():
+    log = MARGEM / 'logs' / 'margem.log'
     if not log.exists():
         print('Ainda não há log.')
     else:
@@ -280,17 +280,55 @@ def av_log():
     pausa()
 
 
-def av_rps():
-    env = ler_env()
-    t = questionary.text('Requisições por segundo na busca (ex.: 4):', default=env.get('ML_MAX_RPS', '2'),
-                         validate=numero_valido(0.5, 10), style=ESTILO).ask()
-    if t:
-        gravar_env('ML_MAX_RPS', f'{float(t.replace(",", ".")):g}')
-        print('Salvo. Vale a partir da próxima busca. Fique de olho nos "429 recebidos" no fim dela.')
-        pausa()
+def mg_avancado():
+    submenu('Margem › Avançado', 'Avançado:', lambda: [
+        Choice('Atualizar só os ativos ou só os pausados', 'status'),
+        Choice('Testar com alguns anúncios', 'teste'),
+        Choice('Recalcular com uma busca mais antiga', 'antiga'),
+        Choice('Gerar a planilha da busca atual (sem chamar o ML)', 'exportar'),
+        Choice('Ver o log recente', 'log'),
+    ], {'status': mg_status, 'teste': mg_teste, 'antiga': mg_coleta_antiga, 'exportar': mg_exportar,
+        'log': mg_log})
 
 
-def av_autorizar():
+def menu_margem():
+    submenu('Margem', 'Margem e preço sugerido:', lambda: [
+        Choice('Continuar a atualização' if coleta_parada() else
+               'Atualizar margens (busca no ML e gera a planilha)', 'atualizar'),
+        Choice('Recalcular sem buscar no ML (após mudar preços ou apelidos)', 'recalcular'),
+        Choice(f'Mudar a margem alvo ({pct(margem_meta())})', 'meta'),
+        Choice(f'Mudar a margem do atacado ({pct(margem_atacado())})', 'meta_atacado'),
+        Separator(),
+        Choice('Avançado...', 'avancado'),
+    ], {'atualizar': mg_atualizar, 'recalcular': mg_recalcular, 'meta': mg_meta,
+        'meta_atacado': mg_meta_atacado, 'avancado': mg_avancado})
+
+
+# ---------------------------------------------------------------- skus e envio
+
+def acao_skus():
+    rodar('Comparando os SKUs da tabela com os anúncios do ML...', '-m', 'skus')
+    pausa()
+
+
+def acao_envio():
+    rodar('Somando os SKUs do PDF de envio (envio/input/)...', '-m', 'envio')
+    pausa()
+
+
+# ---------------------------------------------------------------- acesso e configurações
+
+def acao_autorizar():
+    if rodar('Gerando a URL de autorização...', '-m', 'comum.autorizar') != 0:
+        return pausa()
+    url = questionary.text('Depois de autorizar, cole aqui a URL para onde o ML redirecionou (vazio cancela):',
+                           style=ESTILO).ask()
+    if url:
+        rodar('Salvando o token...', '-m', 'comum.autorizar', url.strip())
+    pausa()
+
+
+def cfg_acesso():
     ok, desc = token()
     print(f'Acesso ao ML: {desc}.')
     print('Só é preciso autorizar de novo se o ML recusar o acesso (ex.: 6 meses sem uso, permissão revogada).')
@@ -298,54 +336,41 @@ def av_autorizar():
         acao_autorizar()
 
 
-def acao_avancado():
-    acoes = {'status': av_status, 'teste': av_teste, 'antiga': av_coleta_antiga, 'exportar': av_exportar,
-             'log': av_log, 'rps': av_rps, 'autorizar': av_autorizar}
-    while True:
-        cabecalho()
-        esc = questionary.select('Avançado:', choices=[
-            Choice('Atualizar só os ativos ou só os pausados', 'status'),
-            Choice('Testar com alguns anúncios', 'teste'),
-            Choice('Recalcular com uma busca mais antiga', 'antiga'),
-            Choice('Gerar a planilha da busca atual (sem chamar o ML)', 'exportar'),
-            Separator(),
-            Choice('Ver o log recente', 'log'),
-            Choice(f'Limite de requisições por segundo: {ler_env().get("ML_MAX_RPS", "2")}', 'rps'),
-            Choice('Acesso ao ML (token e reautorização)', 'autorizar'),
-            Separator(),
-            Choice('Voltar', VOLTAR),
-        ], style=ESTILO).ask()
-        if esc in (None, VOLTAR):
-            return
-        try:
-            acoes[esc]()
-        except KeyboardInterrupt:
-            pass
+def cfg_rps():
+    env = ler_env()
+    t = questionary.text('Requisições por segundo na API do ML (ex.: 4):', default=env.get('ML_MAX_RPS', '2'),
+                         validate=numero_valido(0.5, 10), style=ESTILO).ask()
+    if t:
+        gravar_env('ML_MAX_RPS', f'{float(t.replace(",", ".")):g}')
+        print('Salvo. Vale a partir da próxima busca. Fique de olho nos "429 recebidos" no fim dela.')
+        pausa()
 
 
-# ---------------------------------------------------------------- menu
+def menu_config():
+    submenu('Acesso ao ML e configurações', 'Configurações:', lambda: [
+        Choice('Acesso ao ML (token e reautorização)', 'acesso'),
+        Choice(f'Limite de requisições por segundo: {ler_env().get("ML_MAX_RPS", "2")}', 'rps'),
+    ], {'acesso': cfg_acesso, 'rps': cfg_rps})
+
+
+# ---------------------------------------------------------------- menu principal
 
 def main():
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise SystemExit('O menu precisa de um terminal interativo (abra pelo SSH normal, não por pipe ou cron).')
-    acoes = {'atualizar': acao_atualizar, 'recalcular': acao_recalcular, 'skus': acao_skus, 'envio': acao_envio, 'meta': acao_meta,
-             'meta_atacado': acao_meta_atacado,
-             'autorizar': acao_autorizar, 'avancado': acao_avancado}
+    acoes = {'autorizar': acao_autorizar, 'margem': menu_margem, 'skus': acao_skus, 'envio': acao_envio,
+             'config': menu_config}
     while True:
         cabecalho()
         opcoes = []
         if not token()[0]:
             opcoes.append(Choice('Autorizar o app no ML', 'autorizar'))
         opcoes += [
-            Choice('Continuar a atualização' if coleta_parada() else
-                   'Atualizar margens (busca no ML e gera a planilha)', 'atualizar'),
-            Choice('Recalcular sem buscar no ML (após mudar preços ou apelidos)', 'recalcular'),
+            Choice('Margem e preço sugerido...', 'margem'),
             Choice('Comparar SKUs da tabela com os anúncios (sem anúncio / sem solo)', 'skus'),
-            Choice('Somar os SKUs do PDF de envio (pasta input/)', 'envio'),
-            Choice(f'Mudar a margem alvo ({pct(margem_meta())})', 'meta'),
-            Choice(f'Mudar a margem do atacado ({pct(margem_atacado())})', 'meta_atacado'),
+            Choice('Somar os SKUs do PDF de envio (envio/input/)', 'envio'),
             Separator(),
-            Choice('Avançado...', 'avancado'),
+            Choice('Acesso ao ML e configurações...', 'config'),
             Choice('Sair', 'sair'),
         ]
         esc = questionary.select('O que fazer?', choices=opcoes, style=ESTILO, instruction='(setas e Enter)').ask()

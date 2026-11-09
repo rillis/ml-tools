@@ -1,8 +1,8 @@
-"""Primeira autorização (ou reautorização) do app de margem no Mercado Livre.
+"""Primeira autorização (ou reautorização) do app do ml-tools no Mercado Livre.
 
-1. python authorize.py          -> mostra a URL; abra logado na CONTA PRINCIPAL da loja
+1. python -m comum.autorizar     -> mostra a URL; abra logado na CONTA PRINCIPAL da loja
 2. Autorize; o ML redireciona para a sua redirect_uri com ?code=...&state=...
-3. python authorize.py "<URL inteira para onde o ML redirecionou>"
+3. python -m comum.autorizar "<URL inteira para onde o ML redirecionou>"
    (também aceita só o code, mas aí o state não é conferido)
 
 Com ML_PKCE=1 no .env (só se o PKCE estiver ligado no app), usa code_challenge S256.
@@ -14,7 +14,7 @@ import secrets
 import sys
 import urllib.parse
 
-import ml
+from comum import ml
 
 PENDING = ml.BASE / 'data' / 'authorize-pending.json'
 
@@ -33,7 +33,7 @@ def start():
     PENDING.write_text(json.dumps(pending), encoding='utf-8')
     print('Abra esta URL logado na conta principal da loja:\n')
     print(ml.AUTH_URL + '?' + urllib.parse.urlencode(params))
-    print('\nDepois rode:  python authorize.py "<URL para onde o ML redirecionou>"')
+    print('\nDepois rode:  .venv/bin/python -m comum.autorizar "<URL para onde o ML redirecionou>"')
 
 
 def finish(arg):
@@ -43,7 +43,7 @@ def finish(arg):
         code = (qs.get('code') or [''])[0]
         state = (qs.get('state') or [''])[0]
         if pending.get('state') and state != pending['state']:
-            sys.exit('O state não confere com a URL gerada: gere uma URL nova com  python authorize.py')
+            sys.exit('O state não confere com a URL gerada: gere uma URL nova com  .venv/bin/python -m comum.autorizar')
     else:
         code = arg
     if not code:

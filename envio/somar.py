@@ -1,8 +1,8 @@
-"""Soma os SKUs de um PDF de envio do Full (instruções de preparação) da pasta input/.
+"""Soma os SKUs de um PDF de envio do Full (instruções de preparação) da pasta envio/input/.
 
-Uso (no servidor):  .venv/bin/python envio.py [ARQUIVO.pdf]
+Uso (no servidor, na raiz do projeto):  .venv/bin/python -m envio [ARQUIVO.pdf]
 
-Sem ARQUIVO, mostra os 3 PDFs mais recentes de input/ para escolher um.
+Sem ARQUIVO, mostra os 3 PDFs mais recentes de envio/input/ para escolher um.
 Separa os kits ("KF-216+KA-035", "3xKA-250") em peças, junta os SKUs iguais (ignora maiúsculas)
 e imprime um por linha, como "11x KF-216", em ordem alfabética.
 Confere o número de produtos e de unidades com o cabeçalho do PDF; se não bater, mostra o erro.
@@ -20,8 +20,7 @@ import questionary
 from questionary import Choice
 from pypdf import PdfReader
 
-BASE = Path(__file__).resolve().parent
-ENTRADA = BASE / 'input'
+ENTRADA = Path(__file__).resolve().parent / 'input'
 logging.getLogger('pypdf').setLevel(logging.ERROR)  # avisos de leitura do pypdf poluem a lista
 
 

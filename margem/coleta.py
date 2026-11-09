@@ -4,17 +4,17 @@ titulo = family_name do anúncio (nome sem a variação); se não houver, o titl
 
 Roda no servidor, com a venv da pasta (criada com: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
 
-Uso (troque "python" por .venv/bin/python):
-  python margem.py                    todos os anúncios ativos (retoma de onde parou)
-  python margem.py --ids MLB1,MLB2      teste com alguns anúncios (progresso separado do completo)
-  python margem.py --novo               descarta o progresso e começa de novo
-  python margem.py --exportar           só gera a planilha com o que já foi coletado
-  python margem.py --status active      só um status (padrão: todos; ex.: active, paused)
+Uso (na raiz do projeto, troque "python" por .venv/bin/python):
+  python -m margem.coleta                    todos os anúncios (retoma de onde parou)
+  python -m margem.coleta --ids MLB1,MLB2    teste com alguns anúncios (progresso separado do completo)
+  python -m margem.coleta --novo             descarta o progresso e começa de novo
+  python -m margem.coleta --exportar         só gera a planilha com o que já foi coletado
+  python -m margem.coleta --status active    só um status (padrão: todos; ex.: active, paused)
 
-O progresso fica em data/margem.db: cada anúncio é gravado assim que termina, então
+O progresso fica em margem/data/margem.db: cada anúncio é gravado assim que termina, então
 se o programa parar (Ctrl+C, queda de luz, erro de rede) é só rodar de novo.
 Quando uma coleta termina, a próxima execução começa uma coleta nova.
-O log fica em logs/margem.log e a planilha em saidas/.
+O log fica em margem/logs/margem.log e a planilha em margem/saidas/.
 """
 import argparse
 import logging
@@ -26,10 +26,11 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-import ml
+from comum import ml
+from comum.ml import LOTE, sku_de, titulo_de
 
-BASE = ml.BASE
-LOTE = 20  # máximo do /items?ids=
+DIR = Path(__file__).resolve().parent
+DADOS, LOGS, SAIDAS = DIR / 'data', DIR / 'logs', DIR / 'saidas'
 CAMPOS_ITEM = 'id,title,family_name,price,attributes,shipping,category_id,listing_type_id,status'
 SO_ARQUIVO = {'so_arquivo': True}  # extra= de linhas que vão só para o log (na tela fica a barra)
 
@@ -49,9 +50,9 @@ class TelaHandler(logging.Handler):
 
 
 def setup_log():
-    (BASE / 'logs').mkdir(exist_ok=True)
+    LOGS.mkdir(exist_ok=True)
     fmt = logging.Formatter('%(asctime)s %(levelname)-7s %(message)s', '%d/%m %H:%M:%S')
-    for h in (TelaHandler(), logging.FileHandler(BASE / 'logs' / 'margem.log', encoding='utf-8')):
+    for h in (TelaHandler(), logging.FileHandler(LOGS / 'margem.log', encoding='utf-8')):
         h.setFormatter(fmt)
         log.addHandler(h)
     log.setLevel(logging.INFO)
@@ -125,18 +126,6 @@ def etapa_lista(db, c, seller, status):
         log.info(f'  {db.execute("SELECT COUNT(*) FROM itens").fetchone()[0]}/{total} IDs', extra=SO_ARQUIVO)
         params = {'search_type': 'scan', 'limit': 100, 'scroll_id': r['scroll_id'], **filtro}
     meta(db, 'lista_ok', 1)
-
-
-def sku_de(body):
-    for a in body.get('attributes') or []:
-        if a.get('id') == 'SELLER_SKU' and a.get('value_name'):
-            return a['value_name']
-    return body.get('seller_custom_field') or ''
-
-
-def titulo_de(body):
-    """Nome sem a variação (family_name); se o anúncio não tiver, o título completo."""
-    return (body.get('family_name') or body.get('title') or '').strip()
 
 
 def etapa_base(db, c):
@@ -264,8 +253,8 @@ def exportar(db, nome):
             we.append([row['id'], row['sku'], row['titulo'] or '', row['status'] or '',
                        row['erro'] or 'não processado'])
 
-    (BASE / 'saidas').mkdir(exist_ok=True)
-    arq = BASE / 'saidas' / f'{nome}-{datetime.now():%Y-%m-%d_%H%M}.xlsx'
+    SAIDAS.mkdir(exist_ok=True)
+    arq = SAIDAS / f'{nome}-{datetime.now():%Y-%m-%d_%H%M}.xlsx'
     wb.save(arq)
     log.info(f'Planilha: {arq}  ({ws.max_row - 1} anúncios' + (f', {len(erros)} pendentes)' if erros else ')'))
     return arq
@@ -285,7 +274,7 @@ def main():
     teste = bool(args.ids)
     ids_teste = ','.join(i if i.startswith('MLB') else 'MLB' + i
                          for i in (x.strip().upper() for x in (args.ids or '').split(',')) if i)
-    path = BASE / 'data' / ('teste.db' if teste else 'margem.db')
+    path = DADOS / ('teste.db' if teste else 'margem.db')
     if path.exists() and not args.exportar:
         db = abrir_db(path)
         concluida = meta(db, 'concluida') == '1'

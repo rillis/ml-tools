@@ -1,14 +1,14 @@
-"""Compara os SKUs do precos.xlsx com os anúncios do ML: quais não têm anúncio e quais não têm anúncio solo.
+"""Compara os SKUs da tabela de preços com os anúncios do ML: quais não têm anúncio e quais não têm anúncio solo.
 
-Uso (no servidor):  .venv/bin/python skus.py [--ids MLB1,MLB2]
+Uso (no servidor, na raiz do projeto):  .venv/bin/python -m skus [--ids MLB1,MLB2]
 
 Busca na API só o SKU, o título e o status de cada anúncio (todos os status) e gera
-saidas/skus-AAAA-MM-DD_HHMM.xlsx:
+skus/saidas/skus-AAAA-MM-DD_HHMM.xlsx:
   aba skus: cada SKU da tabela com qtd_anuncios_comp, qtd_anuncios_solo, as mesmas contagens
             só dos ativos e a situacao ("sem anuncio", "sem solo" ou "ok")
   aba sem tabela: anúncios com alguma peça do SKU que não está na tabela
 
-O SKU do anúncio vira SKUs da tabela pelas mesmas regras do custo.py (apelidos, pontuação, barra, "3x").
+O SKU do anúncio vira SKUs da tabela pelas regras de comum/tabela.py, as mesmas do custo (apelidos, pontuação, barra, "3x").
 Solo: o anúncio só tem aquele SKU pago, em qualquer quantidade ("3xKA-250" é solo do KA-250).
 Itens grátis (apelido 0) não tiram o solo do item pago: "KA-032+3xMG-CORRUGADA" é solo do KA-032
 e comp do MG-CORRUGADA. Um anúncio só com itens grátis é solo deles se for um SKU só.
@@ -25,9 +25,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from tqdm import tqdm
 
-import ml
-from custo import BASE, Tabela, carregar_apelidos, carregar_precos
-from margem import LOTE, sku_de, titulo_de
+from comum import ml
+from comum.ml import LOTE, sku_de, titulo_de
+from comum.tabela import APELIDOS, PRECOS, Tabela, carregar_apelidos, carregar_precos
+
+SAIDAS = Path(__file__).resolve().parent / 'saidas'
 
 CAMPOS = 'id,title,family_name,status,attributes,seller_custom_field'
 
@@ -73,8 +75,8 @@ def classificar(tab, sku):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--ids', help='só estes anúncios, separados por vírgula (teste)')
-    ap.add_argument('--precos', default=str(BASE / 'precos.xlsx'))
-    ap.add_argument('--apelidos', default=str(BASE / 'apelidos.xlsx'))
+    ap.add_argument('--precos', default=str(PRECOS))
+    ap.add_argument('--apelidos', default=str(APELIDOS))
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING, format='%(message)s')  # avisos do cliente (429, token)
 
@@ -138,8 +140,8 @@ def main():
             cel.font = Font(bold=True)
 
     nome = 'skus-teste' if args.ids else 'skus'
-    arq = BASE / 'saidas' / f'{nome}-{datetime.now():%Y-%m-%d_%H%M}.xlsx'
-    arq.parent.mkdir(exist_ok=True)
+    arq = SAIDAS / f'{nome}-{datetime.now():%Y-%m-%d_%H%M}.xlsx'
+    SAIDAS.mkdir(exist_ok=True)
     wb.save(arq)
     print(f'Anúncios: {len(anuncios)} | requisições: {c.contagem["requisicoes"]} | 429: {c.contagem["429"]}')
     print(f'SKUs da tabela: {len(cont)} | sem anúncio: {sit_cont["sem anuncio"]} | '
