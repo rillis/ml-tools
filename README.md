@@ -9,6 +9,8 @@ O fluxo de margem tem duas etapas:
 
 À parte, o **comparador de SKUs** (`skus.py`) mostra quais SKUs da tabela não têm nenhum anúncio e quais não têm anúncio solo.
 
+E o **somador de envio** (`envio.py`) lista os SKUs e as quantidades de um PDF de envio do Full.
+
 Tudo pode ser feito pelo menu (`run.sh`), sem digitar argumentos.
 
 ## Instalação
@@ -44,6 +46,7 @@ Abre o menu (setas e Enter, Ctrl+C volta):
 - **Atualizar margens**: busca todos os anúncios no ML e já gera a planilha de custo e margem. Se a busca for interrompida, a opção vira **Continuar a atualização**.
 - **Recalcular sem buscar no ML**: gera a planilha de novo com a última busca, depois de mudar o `precos.xlsx` ou o `apelidos.xlsx`.
 - **Comparar SKUs da tabela com os anúncios**: busca o SKU de todos os anúncios no ML e gera a planilha do comparador (veja abaixo).
+- **Somar os SKUs do PDF de envio**: lê os PDFs da pasta `input/` (veja abaixo).
 - **Mudar a margem alvo**: grava a `MARGEM_META` e oferece recalcular a planilha.
 - **Mudar a margem do atacado**: grava a `MARGEM_META_ATACADO` e oferece recalcular a planilha.
 - **Avançado**: buscar só ativos ou só pausados, testar com alguns anúncios, recalcular com uma busca mais antiga, gerar a planilha da busca atual sem chamar a API, ver o log, mudar o limite de requisições e reautorizar o app.
@@ -62,6 +65,8 @@ Os scripts também podem ser rodados direto, com o Python da venv:
 .venv/bin/python custo.py --coleta saidas/margem-....xlsx
 .venv/bin/python skus.py                      # comparador de SKUs (busca os anúncios no ML)
 .venv/bin/python skus.py --ids MLB1,MLB2      # comparador com alguns anúncios (teste)
+.venv/bin/python envio.py                     # soma os SKUs dos PDFs de envio em input/ e apaga os PDFs
+.venv/bin/python envio.py --manter            # o mesmo, sem apagar
 .venv/bin/python authorize.py                 # gera a URL de autorização
 .venv/bin/python authorize.py "URL de retorno"
 ```
@@ -146,3 +151,17 @@ Aba `skus`, um SKU da tabela por linha, na ordem do `precos.xlsx`:
 | `situacao` | `sem anuncio` (vermelho), `sem solo` (amarelo) ou `ok` |
 
 Aba `sem tabela`: anúncios com alguma peça do SKU que não está na tabela (`fora_da_tabela`). As peças que estão na tabela contam como comp. Para corrigir, use o `apelidos.xlsx`.
+
+
+## Somador de envio
+
+Coloque em `input/` o PDF de instruções de preparação de um envio do Full (`Inbound-...-preparation-instructions.pdf`) e rode `envio.py`.
+
+O script separa os kits em peças (`KF-216+KA-035`, `3xKA-250`), junta os SKUs iguais (ignorando maiúsculas) e imprime um por linha, em ordem alfabética:
+
+```
+6x KA-035
+11x KF-216
+```
+
+Antes, confere o número de produtos e de unidades com o cabeçalho do PDF. Se bater, o PDF é apagado (`--manter` não apaga); se não bater, o erro aparece e o arquivo fica. Com mais de um PDF, cada envio sai separado, com o número do frete em cima.
