@@ -2,7 +2,7 @@
 
 Uso (no servidor):  ./run.sh   (ou .venv/bin/python tui.py)
 
-Roda o margem.py, o custo.py e o authorize.py com os argumentos certos, mostra o estado
+Roda o margem.py, o custo.py, o skus.py e o authorize.py com os argumentos certos, mostra o estado
 da última planilha e muda as configurações do .env. As opções de diagnóstico ficam em "Avançado".
 """
 import glob
@@ -179,6 +179,11 @@ def acao_recalcular():
     pausa()
 
 
+def acao_skus():
+    rodar('Comparando os SKUs da tabela com os anúncios do ML...', 'skus.py')
+    pausa()
+
+
 def numero_valido(minimo, maximo):
     def v(t):
         try:
@@ -318,7 +323,7 @@ def acao_avancado():
 def main():
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise SystemExit('O menu precisa de um terminal interativo (abra pelo SSH normal, não por pipe ou cron).')
-    acoes = {'atualizar': acao_atualizar, 'recalcular': acao_recalcular, 'meta': acao_meta,
+    acoes = {'atualizar': acao_atualizar, 'recalcular': acao_recalcular, 'skus': acao_skus, 'meta': acao_meta,
              'meta_atacado': acao_meta_atacado,
              'autorizar': acao_autorizar, 'avancado': acao_avancado}
     while True:
@@ -330,6 +335,7 @@ def main():
             Choice('Continuar a atualização' if coleta_parada() else
                    'Atualizar margens (busca no ML e gera a planilha)', 'atualizar'),
             Choice('Recalcular sem buscar no ML (após mudar preços ou apelidos)', 'recalcular'),
+            Choice('Comparar SKUs da tabela com os anúncios (sem anúncio / sem solo)', 'skus'),
             Choice(f'Mudar a margem alvo ({pct(margem_meta())})', 'meta'),
             Choice(f'Mudar a margem do atacado ({pct(margem_atacado())})', 'meta_atacado'),
             Separator(),

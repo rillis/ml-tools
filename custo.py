@@ -60,9 +60,13 @@ class Tabela:
     def __init__(self, precos, apelidos):
         self.exato = {}
         self.sem_pont = {}
+        self.nome = {}       # norm -> SKU como está na tabela
+        self.nome_solto = {}  # sem pontuação -> SKUs da tabela
         for sku, preco in precos.items():
             self.exato[norm(sku)] = preco
             self.sem_pont.setdefault(solto(sku), set()).add(preco)
+            self.nome[norm(sku)] = sku
+            self.nome_solto.setdefault(solto(sku), set()).add(sku)
         self.apelidos = {norm(k): v for k, v in apelidos.items()}
 
     def _peca(self, s):
@@ -112,6 +116,53 @@ class Tabela:
             return self._gratis(sku)
         partes = [re.sub(r'^\d+\s*[xX]\s*', '', p.strip()) for p in sku.split('+') if p.strip()]
         return bool(partes) and all(self._gratis(p) for p in partes)
+
+    def _nomes(self, s):
+        """SKUs da tabela de uma peça (sem quantidade), pelas mesmas regras do _peca; [] se não achar."""
+        if norm(s) in self.nome:
+            return [self.nome[norm(s)]]
+        nomes = self.nome_solto.get(solto(s))
+        if nomes and len(nomes) == 1:
+            return list(nomes)
+        if '/' in s:
+            trechos = [t.split('/') for t in s.split('.')]
+            nomes = ['.'.join(c) for c in itertools.product(*trechos)]
+            if len(nomes) > 1 and all(norm(n) in self.nome for n in nomes):
+                return [self.nome[norm(n)] for n in nomes]
+        return []
+
+    def _pecas_apelido(self, nome, qtd):
+        comp = self.apelidos[norm(nome)]
+        fixo = numero(comp)
+        if fixo == 0:  # item grátis: conta o próprio SKU, se ele estiver na tabela
+            return [(n, qtd, True) for n in self._nomes(nome)], []
+        if fixo is not None:  # custo fixo: não aponta para nenhum SKU da tabela
+            return [], []
+        achados, faltas = self.pecas(comp, usar_apelido=False)
+        return [(n, q * qtd, g) for n, q, g in achados], faltas
+
+    def pecas(self, sku, usar_apelido=True):
+        """SKUs da tabela que formam o SKU do anúncio, com as mesmas regras do custo:
+        ([(sku_da_tabela, quantidade, é_grátis)], peças que não estão na tabela)."""
+        sku = str(sku or '').strip()
+        if not sku:
+            return [], ['(sem sku)']
+        if usar_apelido and norm(sku) in self.apelidos:
+            return self._pecas_apelido(sku, 1)
+        if norm(sku) in self.nome:
+            return [(self.nome[norm(sku)], 1, False)], []
+        achados, faltas = [], []
+        for parte in [p.strip() for p in sku.split('+') if p.strip()]:
+            m = re.match(r'^(\d+)\s*[xX]\s*(.+)$', parte)
+            qtd, nome = (int(m.group(1)), m.group(2).strip()) if m else (1, parte)
+            if norm(nome) in self.apelidos:
+                a, f = self._pecas_apelido(nome, qtd)
+            else:
+                nomes = self._nomes(nome)
+                a, f = [(n, qtd, False) for n in nomes], ([] if nomes else [nome])
+            achados += a
+            faltas += f
+        return achados, faltas
 
     def custo(self, sku, usar_apelido=True):
         """(custo, como, peças sem preço) para o SKU do anúncio."""

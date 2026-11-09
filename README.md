@@ -2,10 +2,12 @@
 
 Coleta os anúncios da conta do Mercado Livre e calcula custo, margem e preço sugerido de cada um, a partir da tabela de preços do fornecedor.
 
-O fluxo tem duas etapas:
+O fluxo de margem tem duas etapas:
 
 1. **Coleta** (`margem.py`): busca na API do ML o preço atual, a taxa, o custo de envio, o SKU, o título e o status de cada anúncio.
 2. **Custo** (`custo.py`): cruza a coleta com o `precos.xlsx` e o `apelidos.xlsx` e gera a planilha de margem. Não chama a API.
+
+À parte, o **comparador de SKUs** (`skus.py`) mostra quais SKUs da tabela não têm nenhum anúncio e quais não têm anúncio solo.
 
 Tudo pode ser feito pelo menu (`run.sh`), sem digitar argumentos.
 
@@ -41,6 +43,7 @@ Abre o menu (setas e Enter, Ctrl+C volta):
 
 - **Atualizar margens**: busca todos os anúncios no ML e já gera a planilha de custo e margem. Se a busca for interrompida, a opção vira **Continuar a atualização**.
 - **Recalcular sem buscar no ML**: gera a planilha de novo com a última busca, depois de mudar o `precos.xlsx` ou o `apelidos.xlsx`.
+- **Comparar SKUs da tabela com os anúncios**: busca o SKU de todos os anúncios no ML e gera a planilha do comparador (veja abaixo).
 - **Mudar a margem alvo**: grava a `MARGEM_META` e oferece recalcular a planilha.
 - **Mudar a margem do atacado**: grava a `MARGEM_META_ATACADO` e oferece recalcular a planilha.
 - **Avançado**: buscar só ativos ou só pausados, testar com alguns anúncios, recalcular com uma busca mais antiga, gerar a planilha da busca atual sem chamar a API, ver o log, mudar o limite de requisições e reautorizar o app.
@@ -57,6 +60,8 @@ Os scripts também podem ser rodados direto, com o Python da venv:
 .venv/bin/python margem.py --status active    # só um status
 .venv/bin/python custo.py                     # custo e margem com a coleta mais recente
 .venv/bin/python custo.py --coleta saidas/margem-....xlsx
+.venv/bin/python skus.py                      # comparador de SKUs (busca os anúncios no ML)
+.venv/bin/python skus.py --ids MLB1,MLB2      # comparador com alguns anúncios (teste)
 .venv/bin/python authorize.py                 # gera a URL de autorização
 .venv/bin/python authorize.py "URL de retorno"
 ```
@@ -119,3 +124,25 @@ Se faltar o preço de alguma peça, o anúncio fica sem custo e o resumo na tela
 Da `custo_desc` em diante são fórmulas: ao corrigir um custo na planilha, o resto recalcula.
 
 O `preco_sugerido` usa a taxa e o custo de envio do preço atual. Se o novo preço mudar a faixa de frete do ML, a margem real pode ficar um pouco diferente; a próxima coleta mostra o valor atualizado.
+
+## Comparador de SKUs
+
+`skus.py` busca no ML só o SKU, o título e o status de todos os anúncios (qualquer status) e cruza com o `precos.xlsx`, que serve de lista de todos os SKUs. Não depende da coleta de margem.
+
+O SKU do anúncio vira SKUs da tabela pelas mesmas regras do custo (apelidos, pontuação, barra, quantidade). Cada anúncio conta para os SKUs dele como:
+
+- **solo**: só aquele SKU pago, em qualquer quantidade (`3xKA-250` é solo do `KA-250`). Itens grátis (apelido `0`) não contam: `KA-032+3xMG-CORRUGADA` é solo do `KA-032` e comp do `MG-CORRUGADA`;
+- **comp**: o SKU junto com outros (`KA-250+KA-055`, `TP-036.M/F.GOLF`).
+
+Saída: `saidas/skus-AAAA-MM-DD_HHMM.xlsx` (`skus-teste-...` com `--ids`).
+
+Aba `skus`, um SKU da tabela por linha, na ordem do `precos.xlsx`:
+
+| Coluna | O que é |
+|---|---|
+| `sku` | SKU da tabela |
+| `qtd_anuncios_comp`, `qtd_anuncios_solo` | anúncios em que o SKU aparece em composição / solo, qualquer status |
+| `qtd_ativos_comp`, `qtd_ativos_solo` | o mesmo, só dos anúncios ativos |
+| `situacao` | `sem anuncio` (vermelho), `sem solo` (amarelo) ou `ok` |
+
+Aba `sem tabela`: anúncios com alguma peça do SKU que não está na tabela (`fora_da_tabela`). As peças que estão na tabela contam como comp. Para corrigir, use o `apelidos.xlsx`.
