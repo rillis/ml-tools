@@ -23,7 +23,7 @@ from pathlib import Path
 import questionary
 from questionary import Choice, Separator
 
-from comum.env import gravar_env, ler_env, margem_atacado, margem_meta
+from comum.env import gravar_env, ler_env, margem_meta, partes_meta
 
 BASE = Path(__file__).resolve().parent
 PY = sys.executable
@@ -92,7 +92,9 @@ def cabecalho(secao=None):
     if secao == 'Margem':
         ult = planilhas('custo')[:1]
         print(f'  Última planilha  {Path(ult[0]).name + "  (" + quando(ult[0]) + ")" if ult else "nenhuma ainda"}')
-        print(f'  Margem alvo      {pct(margem_meta())}  (atacado {pct(margem_atacado())})\n')
+        p = partes_meta()
+        print(f'  Margem alvo      {pct(margem_meta())}  (lucro {pct(p["lucro"])} + gordura {pct(p["gordura"])} '
+              f'+ imposto {pct(p["imposto"])})\n')
     c = coleta_parada()
     if c:
         print(f'  {AMARELO}! Atualização da margem interrompida em {c["feitos"]}/{c["total"]} anúncios: '
@@ -180,10 +182,10 @@ def mg_recalcular():
     pausa()
 
 
-def mg_meta(chave='MARGEM_META', atual=None, nome='margem alvo', exemplo='18'):
-    meta = margem_meta() if atual is None else atual
+def mg_meta(chave, atual, nome, exemplo, faixa=(0, 40)):
+    meta = atual
     t = questionary.text(f'Nova {nome} em % (ex.: {exemplo}):', default=f'{meta * 100:g}',
-                         validate=numero_valido(1, 60), style=ESTILO).ask()
+                         validate=numero_valido(*faixa), style=ESTILO).ask()
     if not t:
         return
     gravar_env(chave, f'{float(t.replace(",", ".")) / 100:g}')
@@ -192,10 +194,6 @@ def mg_meta(chave='MARGEM_META', atual=None, nome='margem alvo', exemplo='18'):
             'Recalcular a planilha agora com a nova margem? (não busca no ML)',
             default=True, style=ESTILO).ask():
         mg_recalcular()
-
-
-def mg_meta_atacado():
-    mg_meta('MARGEM_META_ATACADO', margem_atacado(), 'margem do atacado', '17.5')
 
 
 def mg_status():
@@ -215,6 +213,32 @@ def mg_teste():
         return
     rodar('Testando com os anúncios informados...', '-m', 'margem.coleta', '--ids', re.sub(r'\s+', '', ids))
     pausa()
+
+
+def mg_lucro():
+    mg_meta('MARGEM_LUCRO', partes_meta()['lucro'], 'margem de lucro', '9.5')
+
+
+def mg_gordura():
+    mg_meta('MARGEM_GORDURA', partes_meta()['gordura'], 'gordura', '0.5')
+
+
+def mg_imposto():
+    mg_meta('MARGEM_IMPOSTO', partes_meta()['imposto'], 'alíquota de imposto sobre a venda', '7.95')
+
+
+def mg_parcial():
+    c = coleta_atual()
+    if not c or not c['concluida']:
+        print('Precisa de uma busca completa terminada antes: use "Atualizar margens".')
+        return pausa()
+    texto = questionary.text('Códigos MLB dos anúncios (separados por vírgula ou espaço):',
+                             validate=lambda t: bool(re.search(r'MLB\d+', t, re.I)) or 'Use códigos como MLB6926478482',
+                             style=ESTILO).ask()
+    ids = list(dict.fromkeys(re.findall(r'MLB\d+', (texto or '').upper())))
+    if not ids:
+        return
+    coletar_e_calcular('--atualizar', ','.join(ids))
 
 
 def mg_coleta_antiga():
@@ -264,13 +288,15 @@ def menu_margem():
     submenu('Margem', 'Margem e preço sugerido:', lambda: [
         Choice('Continuar a atualização' if coleta_parada() else
                'Atualizar margens (busca no ML e gera a planilha)', 'atualizar'),
+        Choice('Atualizar só alguns anúncios (MLB)', 'parcial'),
         Choice('Recalcular sem buscar no ML (após mudar preços ou apelidos)', 'recalcular'),
-        Choice(f'Mudar a margem alvo ({pct(margem_meta())})', 'meta'),
-        Choice(f'Mudar a margem do atacado ({pct(margem_atacado())})', 'meta_atacado'),
+        Choice(f'Mudar o lucro da margem alvo ({pct(partes_meta()["lucro"])})', 'lucro'),
+        Choice(f'Mudar a gordura da margem alvo ({pct(partes_meta()["gordura"])})', 'gordura'),
+        Choice(f'Mudar o imposto da margem alvo ({pct(partes_meta()["imposto"])})', 'imposto'),
         Separator(),
         Choice('Avançado...', 'avancado'),
-    ], {'atualizar': mg_atualizar, 'recalcular': mg_recalcular, 'meta': mg_meta,
-        'meta_atacado': mg_meta_atacado, 'avancado': mg_avancado})
+    ], {'atualizar': mg_atualizar, 'parcial': mg_parcial, 'recalcular': mg_recalcular, 'lucro': mg_lucro, 'gordura': mg_gordura, 'imposto': mg_imposto,
+        'avancado': mg_avancado})
 
 
 # ---------------------------------------------------------------- skus e envio

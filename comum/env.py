@@ -30,9 +30,21 @@ def gravar_env(chave, valor):
         f.write('\n'.join(linhas) + '\n')
 
 
-def margem_meta(env=None, chave='MARGEM_META', padrao='0.18'):
+def ler_pct(env=None, chave='MARGEM_LUCRO', padrao='0'):
     return float((env or ler_env()).get(chave, padrao).replace(',', '.'))
 
 
-def margem_atacado(env=None):
-    return margem_meta(env, 'MARGEM_META_ATACADO', '0.175')
+# A margem alvo é a soma de três partes, todas sobre o preço de venda
+PARTES_META = {'lucro': ('MARGEM_LUCRO', '0.095'), 'gordura': ('MARGEM_GORDURA', '0.005'),
+               'imposto': ('MARGEM_IMPOSTO', '0.08')}
+
+
+def partes_meta(env=None):
+    """{'lucro': 0.095, 'gordura': 0.005, 'imposto': 0.0795}: as partes da margem alvo."""
+    env = env or ler_env()
+    return {nome: ler_pct(env, chave, padrao) for nome, (chave, padrao) in PARTES_META.items()}
+
+
+def margem_meta(env=None):
+    """Margem alvo total = lucro + gordura + imposto."""
+    return round(sum(partes_meta(env).values()), 6)

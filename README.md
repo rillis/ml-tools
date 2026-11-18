@@ -44,14 +44,13 @@ No menu, use **Autorizar o app no ML** uma vez para gerar o token da conta. Depo
 | `ML_REDIRECT_URI` | redirect URI exatamente como cadastrada no app |
 | `ML_PKCE` | `1` se o PKCE estiver ligado no app, senão `0` |
 | `ML_MAX_RPS` | requisições por segundo na API do ML (padrão 2) |
-| `MARGEM_META` | margem alvo do preço sugerido (`0.18` = 18%) |
-| `MARGEM_META_ATACADO` | margem alvo do preço de atacado (`0.175` = 17,5%) |
+| `MARGEM_LUCRO`, `MARGEM_GORDURA`, `MARGEM_IMPOSTO` | as três partes da margem alvo, sobre o preço de venda (`0.095` = 9,5%). A margem alvo do preço sugerido é a soma delas; o imposto também vira as colunas `imposto` e `lucro_liquido` |
 
 ## Site
 
 A aba **Margem** do ml-app (`/margem/`) é a interface web. O ml-app só repassa as chamadas para este serviço, que roda no container `ml-tools-web` na porta 51016.
 
-- **Margem**: atualizar (ou continuar) a busca no ML, recalcular sem buscar, mudar as metas, tabela dos anúncios com filtros (abaixo, na ou acima da meta, sem custo) e a planilha para baixar. Em **Avançado**: buscar só ativos ou pausados, começar do zero, testar com alguns anúncios, recalcular com uma busca antiga e a lista das planilhas geradas.
+- **Margem**: atualizar (ou continuar) a busca no ML, atualizar só alguns anúncios (**Só alguns**, pelos códigos MLB), recalcular sem buscar, mudar a margem alvo (lucro + gordura + imposto), tabela dos anúncios com filtros (abaixo, na ou acima da meta, sem custo) e a planilha para baixar. Em **Avançado**: buscar só ativos ou pausados, começar do zero, testar com alguns anúncios, recalcular com uma busca antiga e a lista das planilhas geradas.
 - **SKUs**: roda o comparador e mostra os SKUs sem anúncio ou sem solo e os anúncios com peça fora da tabela.
 - **Envio**: envia o PDF do envio do Full e copia a lista somada.
 - **Tabelas**: baixar e trocar o `precos.xlsx` e o `apelidos.xlsx`. A versão anterior fica em `data/tabelas-anteriores/`.
@@ -128,9 +127,9 @@ O fluxo tem duas etapas:
 ### Menu da margem
 
 - **Atualizar margens**: busca todos os anúncios no ML e já gera a planilha de custo e margem. Se a busca for interrompida, a opção vira **Continuar a atualização**.
+- **Atualizar só alguns anúncios (MLB)**: busca de novo no ML só os anúncios informados (códigos MLB) e troca as linhas deles na última busca completa; os outros ficam como estão. Depois gera a planilha. Precisa de uma busca completa terminada; anúncio que não estava nela entra no fim.
 - **Recalcular sem buscar no ML**: gera a planilha de novo com a última busca, depois de mudar o `precos.xlsx` ou o `apelidos.xlsx`.
-- **Mudar a margem alvo**: grava a `MARGEM_META` e oferece recalcular a planilha.
-- **Mudar a margem do atacado**: grava a `MARGEM_META_ATACADO` e oferece recalcular a planilha.
+- **Mudar o lucro / a gordura / o imposto da margem alvo**: grava `MARGEM_LUCRO`, `MARGEM_GORDURA` ou `MARGEM_IMPOSTO` e oferece recalcular a planilha. A margem alvo é a soma das três.
 - **Avançado**: buscar só ativos ou só pausados, testar com alguns anúncios, recalcular com uma busca mais antiga, gerar a planilha da busca atual sem chamar a API e ver o log.
 
 ### Comandos
@@ -141,6 +140,7 @@ O fluxo tem duas etapas:
 .venv/bin/python -m margem.coleta --novo             # descarta a coleta parada e começa de novo
 .venv/bin/python -m margem.coleta --exportar         # só gera a planilha da coleta atual
 .venv/bin/python -m margem.coleta --status active    # só um status
+.venv/bin/python -m margem.coleta --atualizar MLB1,MLB2   # só estes, trocando as linhas deles na última busca completa
 .venv/bin/python -m margem.custo                     # custo e margem com a coleta mais recente
 .venv/bin/python -m margem.custo --coleta margem/saidas/margem-....xlsx
 ```
@@ -151,6 +151,7 @@ O fluxo tem duas etapas:
 - Anúncios que dão erro vão para a aba `pendentes` e são tentados de novo na execução seguinte.
 - A tela mostra uma barra de progresso; o detalhe de cada anúncio fica em `margem/logs/margem.log`. No fim aparece um resumo com o total de requisições e de respostas 429.
 - Saída: `margem/saidas/margem-AAAA-MM-DD_HHMM.xlsx` com `codigo`, `sku`, `titulo`, `status`, `preco`, `taxa`, `adc` e `frete`.
+  - `taxa` é o percentual da tarifa de venda do ML, buscado pela categoria, pelo tipo de anúncio e pelo preço de cada anúncio (o percentual muda conforme a faixa de preço).
   - `titulo` é o nome do anúncio sem a variação (`family_name`); se não houver, o título completo.
   - `frete` é o custo de envio dos anúncios com frete grátis; `adc` é o dos anúncios sem frete grátis. Um dos dois é sempre 0.
 
@@ -165,16 +166,17 @@ O fluxo tem duas etapas:
 | `preco`, `taxa`, `adc`, `frete` | da coleta |
 | `custo` | soma dos preços do fornecedor, sem desconto |
 | `custo_desc` | custo com o desconto de 15% |
-| `lucro` | preço − taxa − adc − frete − custo_desc |
-| `margem` | lucro ÷ preço (vermelho abaixo de META − 0,1 p.p., amarelo acima de META + 0,1 p.p.) |
-| `preco_sugerido` | preço que dá a `MARGEM_META`; nos anúncios `so_gratis`, o preço atual |
+| `lucro` | preço − taxa − adc − frete − custo_desc (antes do imposto) |
+| `margem` | lucro ÷ preço, comparada com a margem alvo (vermelho abaixo dela − 0,1 p.p., amarelo acima dela + 0,1 p.p.) |
+| `imposto` | preço × `MARGEM_IMPOSTO` |
+| `lucro_liquido` | lucro − imposto |
+| `preco_sugerido` | preço que dá a margem alvo (lucro + gordura + imposto); nos anúncios `so_gratis`, o preço atual |
 | `diferenca` | preco_sugerido − preco (positivo: precisa subir) |
 | `diferenca_pct` | diferenca ÷ preco em %, em valor absoluto (sempre positivo) |
-| `preco_sugerido_atacado`, `diferenca_atacado`, `diferenca_pct_atacado` | o mesmo das três anteriores, com a `MARGEM_META_ATACADO` |
 
 Da `custo_desc` em diante são fórmulas: ao corrigir um custo na planilha, o resto recalcula.
 
-O `preco_sugerido` usa a taxa e o custo de envio do preço atual. Se o novo preço mudar a faixa de frete do ML, a margem real pode ficar um pouco diferente; a próxima coleta mostra o valor atualizado.
+O `preco_sugerido` usa a taxa e o custo de envio do preço atual. Se o novo preço mudar a faixa de tarifa ou de frete do ML, a margem real pode ficar um pouco diferente; a próxima coleta mostra o valor atualizado.
 
 ## Comparador de SKUs
 

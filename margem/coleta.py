@@ -10,6 +10,7 @@ Uso (na raiz do projeto, troque "python" por .venv/bin/python):
   python -m margem.coleta --novo             descarta o progresso e começa de novo
   python -m margem.coleta --exportar         só gera a planilha com o que já foi coletado
   python -m margem.coleta --status active    só um status (padrão: todos; ex.: active, paused)
+  python -m margem.coleta --atualizar MLB1,MLB2   busca de novo só estes e troca as linhas deles na última busca completa
 
 O progresso fica em margem/data/margem.db: cada anúncio é gravado assim que termina, então
 se o programa parar (Ctrl+C, queda de luz, erro de rede) é só rodar de novo.
@@ -18,6 +19,7 @@ O log fica em margem/logs/margem.log e a planilha em margem/saidas/.
 """
 import argparse
 import logging
+import re
 import sqlite3
 import sys
 import time
@@ -78,9 +80,9 @@ def abrir_db(path):
             base_ok INTEGER DEFAULT 0,
             preco REAL, taxa REAL, adc REAL, frete REAL,
             ok INTEGER DEFAULT 0, erro TEXT, atualizado TEXT);
-        CREATE TABLE IF NOT EXISTS taxas (
-            category_id TEXT, listing_type_id TEXT, percentual REAL,
-            PRIMARY KEY (category_id, listing_type_id));
+        CREATE TABLE IF NOT EXISTS taxas_preco (
+            category_id TEXT, listing_type_id TEXT, preco REAL, percentual REAL,
+            PRIMARY KEY (category_id, listing_type_id, preco));
     ''')
     colunas = {r['name'] for r in db.execute('PRAGMA table_info(itens)')}
     for nova in ('titulo', 'status'):  # bancos criados antes dessas colunas
@@ -163,17 +165,23 @@ def etapa_base(db, c):
 
 
 def taxa_de(db, c, category_id, listing_type_id, preco):
-    """Percentual da tarifa: depende da categoria e do tipo de anúncio, então busca uma vez por par."""
-    row = db.execute('SELECT percentual FROM taxas WHERE category_id=? AND listing_type_id=?',
-                     (category_id, listing_type_id)).fetchone()
+    """Percentual da tarifa. Depende da categoria, do tipo de anúncio e também do preço
+    (na mesma categoria, R$ 150 pode pagar 11% e R$ 1.000, 12%), então busca por categoria + tipo + preço."""
+    preco = round(preco, 2)
+    row = db.execute('SELECT percentual FROM taxas_preco WHERE category_id=? AND listing_type_id=? AND preco=?',
+                     (category_id, listing_type_id, preco)).fetchone()
     if row:
         return row['percentual']
     r = c.get('/sites/MLB/listing_prices',
               {'price': preco, 'listing_type_id': listing_type_id, 'category_id': category_id})
-    pct = (r.get('sale_fee_details') or {}).get('percentage_fee')
+    det = r.get('sale_fee_details') or {}
+    pct = det.get('percentage_fee')
     if pct is None:
         raise ml.MLError('sem percentage_fee', 'listing_prices', r)
-    db.execute('INSERT OR REPLACE INTO taxas VALUES (?, ?, ?)', (category_id, listing_type_id, pct))
+    if det.get('fixed_fee'):
+        log.warning(f'Tarifa com valor fixo de R$ {det["fixed_fee"]} em {category_id} a R$ {preco}: '
+                    'a margem considera só o percentual')
+    db.execute('INSERT OR REPLACE INTO taxas_preco VALUES (?, ?, ?, ?)', (category_id, listing_type_id, preco, pct))
     db.commit()
     return pct
 
@@ -262,9 +270,46 @@ def exportar(db, nome):
 
 # ---------------------------------------------------------------- principal
 
+def atualizar_alguns(ids):
+    """Busca de novo só estes anúncios e troca as linhas deles na última coleta completa (margem.db).
+    Os outros anúncios ficam como estão. Anúncio que não estava na coleta entra no fim."""
+    path = DADOS / 'margem.db'
+    if not path.exists():
+        raise SystemExit('Ainda não há uma busca completa: use "Atualizar margens" primeiro.')
+    db = abrir_db(path)
+    if meta(db, 'concluida') != '1':
+        raise SystemExit('A última busca completa parou no meio: continue ela antes de atualizar só alguns anúncios.')
+    ordem = db.execute('SELECT COALESCE(MAX(ordem), 0) FROM itens').fetchone()[0]
+    for i in ids:
+        if db.execute('INSERT OR IGNORE INTO itens (id, ordem) VALUES (?, ?)', (i, ordem + 1)).rowcount:
+            ordem += 1
+        db.execute('UPDATE itens SET base_ok=0, ok=0, erro=NULL WHERE id=?', (i,))
+    db.commit()
+    log.info(f'Atualizando só {len(ids)} anúncios na busca de {meta(db, "inicio")}: {", ".join(ids)}')
+
+    c = ml.MLClient()
+    seller = ml.read_tokens().get('user_id') or c.get('/users/me')['id']
+    try:
+        etapa_base(db, c)
+        etapa_detalhe(db, c, seller)
+    except KeyboardInterrupt:
+        log.warning('Interrompido: rode de novo com os mesmos anúncios.')
+        sys.exit(130)
+    except ml.MLError as e:
+        log.error(f'{e}\nRode de novo para tentar esses anúncios.')
+        sys.exit(1)
+    erros = db.execute(f'SELECT id, erro FROM itens WHERE ok=0 AND id IN ({",".join("?" * len(ids))})', ids).fetchall()
+    for e in erros:
+        log.warning(f'{e["id"]}: {e["erro"] or "não processado"} (fica na aba "pendentes")')
+    log.info(f'{len(ids) - len(erros)} de {len(ids)} anúncios atualizados')
+    exportar(db, 'margem')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--ids', help='teste com estes anúncios, separados por vírgula')
+    ap.add_argument('--atualizar', help='busca de novo só estes anúncios (MLB, separados por vírgula) '
+                                        'e troca as linhas deles na última busca completa')
     ap.add_argument('--novo', action='store_true', help='descarta o progresso e começa de novo')
     ap.add_argument('--exportar', action='store_true', help='só gera a planilha')
     ap.add_argument('--status', default='todos', help='só anúncios com este status (padrão: todos)')
@@ -272,6 +317,10 @@ def main():
     setup_log()
     # antes de mexer no banco: outra coleta rodando usa o mesmo margem.db
     trava = None if args.exportar else ml.travar_busca()  # noqa: F841 (solta quando o processo termina)
+    if args.atualizar:
+        ids = [i if i.startswith('MLB') else 'MLB' + i
+               for i in (x.strip().upper() for x in re.split(r'[\s,;]+', args.atualizar)) if i]
+        return atualizar_alguns(list(dict.fromkeys(ids)))
 
     teste = bool(args.ids)
     ids_teste = ','.join(i if i.startswith('MLB') else 'MLB' + i

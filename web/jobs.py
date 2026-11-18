@@ -79,6 +79,9 @@ def _passos(tipo, opcoes):
         return [('Buscando os anúncios do teste', lambda: ['-m', 'margem.coleta', '--ids', opcoes['ids']]),
                 ('Calculando custo e margem do teste',
                  lambda: ['-m', 'margem.custo', '--coleta', _mais_recente(MARGEM_SAIDAS / 'teste-*.xlsx')])]
+    if tipo == 'parcial':
+        return [('Buscando os anúncios escolhidos no ML', lambda: ['-m', 'margem.coleta', '--atualizar', opcoes['ids']]),
+                ('Calculando custo e margem', lambda: ['-m', 'margem.custo'])]
     if tipo == 'skus':
         return [('Comparando os SKUs com os anúncios', lambda: ['-m', 'skus'])]
     raise ValueError(f'Tarefa desconhecida: {tipo}')

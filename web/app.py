@@ -14,7 +14,7 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from comum import autorizar, ml
-from comum.env import gravar_env, ler_env, margem_atacado, margem_meta
+from comum.env import PARTES_META, gravar_env, ler_env, margem_meta, partes_meta
 from comum.tabela import APELIDOS, PASTA as TABELAS, PRECOS, carregar_apelidos, carregar_precos
 from envio import somar
 from web import jobs
@@ -127,7 +127,7 @@ def create_app():
             'job': jobs.atual(),
             'coleta': _coleta_atual(),
             'coletas': [{'nome': Path(a).name, 'quando': _quando(a)} for a in coletas[:10]],
-            'meta': margem_meta(env), 'meta_atacado': margem_atacado(env),
+            'meta': margem_meta(env), 'partes': partes_meta(env),
             'rps': float(env.get('ML_MAX_RPS', '2').replace(',', '.')),
             'token': _token(),
         })
@@ -160,6 +160,19 @@ def create_app():
             if not RE_IDS.match(ids) or len(ids.split(',')) > 20:
                 return _erro('Use até 20 códigos como MLB6926478482, separados por vírgula')
             opcoes = {'ids': ids}
+        elif tipo == 'parcial':
+            # MLB separados por vírgula, espaço ou linha; repetidos contam uma vez
+            ids = list(dict.fromkeys(re.findall(r'MLB\d+', str(c.get('ids') or '').upper())))
+            if not ids:
+                return _erro('Cole os códigos dos anúncios (MLB…)')
+            if len(ids) > 200:
+                return _erro('Use até 200 anúncios por vez; para mais, use Atualizar margens')
+            col = _coleta_atual()
+            if not col:
+                return _erro('Ainda não há uma busca completa: use Atualizar margens primeiro.')
+            if not col['concluida']:
+                return _erro('A última busca completa parou no meio: continue ela antes.')
+            opcoes = {'ids': ','.join(ids)}
         elif tipo != 'skus':
             return _erro('Tarefa desconhecida')
         if tipo != 'recalcular' and not _token()['ok']:
@@ -210,10 +223,13 @@ def create_app():
     def api_config():
         c = _corpo()
         try:
-            if 'meta' in c:
-                gravar_env('MARGEM_META', f'{_pct(c["meta"], 1, 60) / 100:g}')
-            if 'meta_atacado' in c:
-                gravar_env('MARGEM_META_ATACADO', f'{_pct(c["meta_atacado"], 1, 60) / 100:g}')
+            # partes da margem alvo: lucro + gordura + imposto (confere a soma antes de gravar)
+            novas = {**partes_meta(), **{n: _pct(c[n], 0, 40) / 100 for n in PARTES_META if n in c}}
+            if sum(novas.values()) >= 0.7:
+                return _erro('A soma de lucro, gordura e imposto ficou alta demais')
+            for nome, (chave, _) in PARTES_META.items():
+                if nome in c:
+                    gravar_env(chave, f'{novas[nome]:g}')
             if 'rps' in c:
                 gravar_env('ML_MAX_RPS', f'{_pct(c["rps"], 0.5, 10):g}')
         except ValueError as e:
