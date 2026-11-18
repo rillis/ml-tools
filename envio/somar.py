@@ -16,8 +16,6 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-import questionary
-from questionary import Choice
 from pypdf import PdfReader
 
 ENTRADA = Path(__file__).resolve().parent / 'input'
@@ -60,6 +58,8 @@ def somar(linhas):
 
 def escolher():
     """Um dos 3 PDFs mais recentes de input/ (ou None se cancelar)."""
+    import questionary  # só o menu do terminal usa; o site chama ler() e somar() direto
+    from questionary import Choice
     ENTRADA.mkdir(exist_ok=True)
     pdfs = sorted((p for p in ENTRADA.iterdir() if p.suffix.lower() == '.pdf'),
                   key=lambda p: p.stat().st_mtime, reverse=True)[:3]

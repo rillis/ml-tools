@@ -16,6 +16,7 @@ Comp: o anúncio tem o SKU junto com outros. Se uma peça não estiver na tabela
 contam como comp e o anúncio vai para a aba "sem tabela".
 """
 import argparse
+import json
 import logging
 import sys
 from datetime import datetime
@@ -82,6 +83,7 @@ def main():
 
     precos = carregar_precos(args.precos)
     tab = Tabela(precos, carregar_apelidos(Path(args.apelidos)))
+    trava = ml.travar_busca()  # noqa: F841 (solta quando o processo termina)
     c = ml.MLClient()
     try:
         if args.ids:
@@ -116,9 +118,11 @@ def main():
     cores = {'sem anuncio': PatternFill('solid', start_color='F8CBAD'),
              'sem solo': PatternFill('solid', start_color='FFE699')}
     sit_cont = {'sem anuncio': 0, 'sem solo': 0, 'ok': 0}
+    linhas_json = []
     for s, k in cont.items():  # na ordem do precos.xlsx
         sit = 'sem anuncio' if not k['comp'] + k['solo'] else 'sem solo' if not k['solo'] else 'ok'
         sit_cont[sit] += 1
+        linhas_json.append({'sku': s, **k, 'situacao': sit})
         ws.append([s, k['comp'], k['solo'], k['ativos_comp'], k['ativos_solo'], sit])
         if sit in cores:
             for cel in ws[ws.max_row]:
@@ -143,6 +147,12 @@ def main():
     arq = SAIDAS / f'{nome}-{datetime.now():%Y-%m-%d_%H%M}.xlsx'
     SAIDAS.mkdir(exist_ok=True)
     wb.save(arq)
+    # o site mostra este resumo; a planilha continua sendo o resultado completo
+    arq.with_suffix('.json').write_text(json.dumps({
+        'gerado': datetime.now().isoformat(timespec='seconds'), 'planilha': arq.name,
+        'anuncios': len(anuncios), 'contagem': sit_cont, 'skus': linhas_json,
+        'sem_tabela': [dict(zip(('codigo', 'sku', 'titulo', 'status', 'fora_da_tabela'), x)) for x in sem_tabela],
+    }, ensure_ascii=False), encoding='utf-8')
     print(f'Anúncios: {len(anuncios)} | requisições: {c.contagem["requisicoes"]} | 429: {c.contagem["429"]}')
     print(f'SKUs da tabela: {len(cont)} | sem anúncio: {sit_cont["sem anuncio"]} | '
           f'sem solo: {sit_cont["sem solo"]} | ok: {sit_cont["ok"]}')

@@ -270,6 +270,8 @@ def main():
     ap.add_argument('--status', default='todos', help='só anúncios com este status (padrão: todos)')
     args = ap.parse_args()
     setup_log()
+    # antes de mexer no banco: outra coleta rodando usa o mesmo margem.db
+    trava = None if args.exportar else ml.travar_busca()  # noqa: F841 (solta quando o processo termina)
 
     teste = bool(args.ids)
     ids_teste = ','.join(i if i.startswith('MLB') else 'MLB' + i

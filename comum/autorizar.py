@@ -19,7 +19,8 @@ from comum import ml
 PENDING = ml.BASE / 'data' / 'authorize-pending.json'
 
 
-def start():
+def url_autorizacao():
+    """Gera a URL de autorização e guarda o state (e o code_verifier, com PKCE) para conferir na volta."""
     state = secrets.token_urlsafe(16)
     params = {'response_type': 'code', 'client_id': ml.APP_ID,
               'redirect_uri': ml.REDIRECT_URI, 'state': state}
@@ -31,23 +32,23 @@ def start():
         pending['code_verifier'] = verifier
     PENDING.parent.mkdir(parents=True, exist_ok=True)
     PENDING.write_text(json.dumps(pending), encoding='utf-8')
-    print('Abra esta URL logado na conta principal da loja:\n')
-    print(ml.AUTH_URL + '?' + urllib.parse.urlencode(params))
-    print('\nDepois rode:  .venv/bin/python -m comum.autorizar "<URL para onde o ML redirecionou>"')
+    return ml.AUTH_URL + '?' + urllib.parse.urlencode(params)
 
 
-def finish(arg):
+def concluir(arg):
+    """Troca o code (ou a URL de retorno inteira) pelos tokens. Devolve o /users/me; ValueError se falhar."""
     pending = json.loads(PENDING.read_text(encoding='utf-8')) if PENDING.exists() else {}
+    arg = arg.strip()
     if arg.startswith('http'):
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(arg).query)
         code = (qs.get('code') or [''])[0]
         state = (qs.get('state') or [''])[0]
         if pending.get('state') and state != pending['state']:
-            sys.exit('O state não confere com a URL gerada: gere uma URL nova com  .venv/bin/python -m comum.autorizar')
+            raise ValueError('O state não confere com a URL gerada: gere uma URL nova e autorize de novo')
     else:
         code = arg
     if not code:
-        sys.exit('Não achei o code= na URL')
+        raise ValueError('Não achei o code= na URL')
 
     fields = {'grant_type': 'authorization_code', 'client_id': ml.APP_ID, 'client_secret': ml.SECRET,
               'code': code, 'redirect_uri': ml.REDIRECT_URI}
@@ -56,21 +57,29 @@ def finish(arg):
     try:
         js = ml._post_form(ml.TOKEN_URL, fields)
     except ml.MLError as e:
-        sys.exit(f'O ML recusou a troca do code: {e}')
+        raise ValueError(f'O ML recusou a troca do code: {e}') from None
     ml.save_tokens(js)
     PENDING.unlink(missing_ok=True)
-    me = ml.MLClient().get('/users/me')
-    print(f'Autorizado: {me.get("nickname")} (id {me.get("id")}). Tokens gravados em data/tokens.json')
+    return ml.MLClient().get('/users/me')
+
+
+def faltando():
+    return [k for k in ('ML_APP_ID', 'ML_SECRET_KEY', 'ML_REDIRECT_URI') if not ml.ENV.get(k)]
 
 
 def main():
-    missing = [k for k in ('ML_APP_ID', 'ML_SECRET_KEY', 'ML_REDIRECT_URI') if not ml.ENV.get(k)]
-    if missing:
-        sys.exit(f'Preencha no .env: {", ".join(missing)}  (modelo em .env.example)')
+    if faltando():
+        sys.exit(f'Preencha no .env: {", ".join(faltando())}  (modelo em .env.example)')
     if len(sys.argv) > 1:
-        finish(sys.argv[1])
+        try:
+            me = concluir(sys.argv[1])
+        except ValueError as e:
+            sys.exit(str(e))
+        print(f'Autorizado: {me.get("nickname")} (id {me.get("id")}). Tokens gravados em data/tokens.json')
     else:
-        start()
+        print('Abra esta URL logado na conta principal da loja:\n')
+        print(url_autorizacao())
+        print('\nDepois rode:  .venv/bin/python -m comum.autorizar "<URL para onde o ML redirecionou>"')
 
 
 if __name__ == '__main__':

@@ -23,9 +23,10 @@ from pathlib import Path
 import questionary
 from questionary import Choice, Separator
 
+from comum.env import gravar_env, ler_env, margem_atacado, margem_meta
+
 BASE = Path(__file__).resolve().parent
 PY = sys.executable
-ENV = BASE / '.env'
 MARGEM = BASE / 'margem'
 ESTILO = questionary.Style([('qmark', 'fg:#4ea1d3 bold'), ('pointer', 'fg:#4ea1d3 bold'),
                             ('highlighted', 'fg:#4ea1d3 bold'), ('answer', 'fg:#7bc96f bold')])
@@ -34,38 +35,6 @@ NEGRITO, AMARELO, VERDE, CINZA, FIM = '\033[1m', '\033[33m', '\033[32m', '\033[2
 
 
 # ---------------------------------------------------------------- estado
-
-def ler_env():
-    env = {}
-    if ENV.exists():
-        for linha in ENV.read_text(encoding='utf-8').splitlines():
-            if '=' in linha and not linha.lstrip().startswith('#'):
-                k, v = linha.split('=', 1)
-                env[k.strip()] = v.strip()
-    return env
-
-
-def gravar_env(chave, valor):
-    """Troca (ou acrescenta) uma linha CHAVE=valor sem mexer no resto do .env."""
-    linhas = ENV.read_text(encoding='utf-8').splitlines() if ENV.exists() else []
-    achou = False
-    for i, linha in enumerate(linhas):
-        if re.match(rf'^\s*{re.escape(chave)}\s*=', linha):
-            linhas[i] = f'{chave}={valor}'
-            achou = True
-    if not achou:
-        linhas.append(f'{chave}={valor}')
-    with open(ENV, 'w', encoding='utf-8') as f:  # mesmo arquivo: mantém dono e permissões
-        f.write('\n'.join(linhas) + '\n')
-
-
-def margem_meta(env=None, chave='MARGEM_META', padrao='0.18'):
-    return float((env or ler_env()).get(chave, padrao).replace(',', '.'))
-
-
-def margem_atacado(env=None):
-    return margem_meta(env, 'MARGEM_META_ATACADO', '0.175')
-
 
 def pct(x):
     return f'{x * 100:g}%'

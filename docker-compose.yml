@@ -1,0 +1,12 @@
+services:
+  ml-tools-web:
+    build: .
+    image: ml-tools-web:latest
+    container_name: ml-tools-web
+    restart: unless-stopped
+    init: true
+    ports:
+      - "51016:8000"
+    volumes:
+      # código, .env, tabelas e saídas: os mesmos do menu do terminal
+      - ./:/app

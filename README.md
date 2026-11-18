@@ -1,4 +1,4 @@
-# ml-tools
+# ml-tools-web
 
 Ferramentas para os anúncios da conta do Mercado Livre:
 
@@ -6,19 +6,21 @@ Ferramentas para os anúncios da conta do Mercado Livre:
 - **[Comparador de SKUs](#comparador-de-skus)**: mostra quais SKUs da tabela não têm nenhum anúncio e quais não têm anúncio solo.
 - **[Somador de envio](#somador-de-envio)**: lista os SKUs e as quantidades de um PDF de envio do Full.
 
-Tudo pode ser feito pelo menu (`run.sh`), sem digitar argumentos.
+Tudo pode ser feito pela aba **Margem** do ml-app (veja [Site](#site)) ou pelo menu do terminal (`run.sh`). Os dois usam o mesmo código, as mesmas tabelas e as mesmas saídas.
 
 ## Estrutura
 
 ```
-ml-tools/
-├── run.sh, menu.py      menu
+ml-tools-web/
+├── run.sh, menu.py      menu do terminal
+├── web/                 API do site (app.py) e tarefas em segundo plano (jobs.py)
+├── Dockerfile, docker-compose.yml, gunicorn.conf.py
 ├── tabelas/             precos.xlsx e apelidos.xlsx (usadas pela margem e pelo comparador)
-├── comum/               API do ML (ml.py), autorização (autorizar.py) e tabela de preços (tabela.py)
+├── comum/               API do ML (ml.py), autorização (autorizar.py), tabela de preços (tabela.py) e .env (env.py)
 ├── margem/              coleta.py e custo.py; data/, logs/ e saidas/ da margem
 ├── skus/                comparar.py; saidas/ do comparador
 ├── envio/               somar.py; input/ com os PDFs de envio
-└── data/                token do ML
+└── data/                token do ML, estado da última tarefa do site e versões anteriores das tabelas
 ```
 
 As pastas `data/`, `logs/`, `saidas/` e `input/` (de qualquer módulo) ficam fora do Git.
@@ -44,6 +46,30 @@ No menu, use **Autorizar o app no ML** uma vez para gerar o token da conta. Depo
 | `ML_MAX_RPS` | requisições por segundo na API do ML (padrão 2) |
 | `MARGEM_META` | margem alvo do preço sugerido (`0.18` = 18%) |
 | `MARGEM_META_ATACADO` | margem alvo do preço de atacado (`0.175` = 17,5%) |
+
+## Site
+
+A aba **Margem** do ml-app (`/margem/`) é a interface web. O ml-app só repassa as chamadas para este serviço, que roda no container `ml-tools-web` na porta 51016.
+
+- **Margem**: atualizar (ou continuar) a busca no ML, recalcular sem buscar, mudar as metas, tabela dos anúncios com filtros (abaixo, na ou acima da meta, sem custo) e a planilha para baixar. Em **Avançado**: buscar só ativos ou pausados, começar do zero, testar com alguns anúncios, recalcular com uma busca antiga e a lista das planilhas geradas.
+- **SKUs**: roda o comparador e mostra os SKUs sem anúncio ou sem solo e os anúncios com peça fora da tabela.
+- **Envio**: envia o PDF do envio do Full e copia a lista somada.
+- **Tabelas**: baixar e trocar o `precos.xlsx` e o `apelidos.xlsx`. A versão anterior fica em `data/tabelas-anteriores/`.
+- **Acesso**: estado do token, reautorização do app no ML e limite de requisições por segundo.
+
+As buscas no ML e os cálculos rodam em segundo plano, uma tarefa por vez, com os mesmos módulos do menu (`python -m ...`). A tela mostra o progresso e dá para fechar a aba. O botão **Parar** interrompe a tarefa como um Ctrl+C: o que já foi buscado fica salvo e **Continuar a atualização** retoma de onde parou. Uma busca no ML pelo menu e outra pelo site não rodam ao mesmo tempo.
+
+O `custo.py` e o comparador gravam, ao lado de cada planilha, um `.json` com os valores já calculados. É ele que o site mostra.
+
+### Deploy
+
+```bash
+docker compose up -d --build
+```
+
+A pasta do projeto é montada em `/app`, então o container usa o mesmo `.env`, as mesmas tabelas e as mesmas saídas do menu. Mudança em Python entra com `docker compose restart`; só é preciso `--build` ao mudar o `requirements.txt` ou o `Dockerfile`.
+
+O ml-app acha o serviço por `MARGEM_URL` no `.env` dele (padrão `http://192.168.15.11:51016`).
 
 ## Menu
 
@@ -140,7 +166,7 @@ O fluxo tem duas etapas:
 | `custo` | soma dos preços do fornecedor, sem desconto |
 | `custo_desc` | custo com o desconto de 15% |
 | `lucro` | preço − taxa − adc − frete − custo_desc |
-| `margem` | lucro ÷ preço (vermelho abaixo de META − 3 p.p., amarelo acima de META + 3 p.p.) |
+| `margem` | lucro ÷ preço (vermelho abaixo de META − 0,1 p.p., amarelo acima de META + 0,1 p.p.) |
 | `preco_sugerido` | preço que dá a `MARGEM_META`; nos anúncios `so_gratis`, o preço atual |
 | `diferenca` | preco_sugerido − preco (positivo: precisa subir) |
 | `diferenca_pct` | diferenca ÷ preco em %, em valor absoluto (sempre positivo) |

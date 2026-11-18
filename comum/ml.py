@@ -4,6 +4,7 @@
 - Guarda os tokens em data/tokens.json e renova sozinho quando o access token vence.
 - Faz no máximo ML_MAX_RPS requisições por segundo e espera quando o ML responde 429.
 """
+import fcntl
 import json
 import logging
 import os
@@ -78,6 +79,19 @@ def read_tokens():
     if not TOKENS_FILE.exists():
         raise RuntimeError('Sem tokens: use "Autorizar o app no ML" no menu (ou  python -m comum.autorizar)')
     return json.loads(TOKENS_FILE.read_text(encoding='utf-8'))
+
+
+def travar_busca():
+    """Garante uma busca no ML por vez (menu, linha de comando ou site): todas usam o mesmo token
+    e o mesmo limite de requisições. Fica travado até o processo terminar."""
+    arq = BASE / 'data' / 'busca.lock'
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    f = open(arq, 'w')
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit('Já tem uma busca no ML rodando (pelo menu ou pelo site). Espere ela terminar.')
+    return f  # manter a referência: fechar o arquivo solta a trava
 
 
 LOTE = 20  # máximo de anúncios por chamada do /items?ids=
