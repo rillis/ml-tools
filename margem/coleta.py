@@ -1,4 +1,7 @@
-"""Puxa os anúncios do ML e gera a planilha de margem (codigo, sku, titulo, status, preco, taxa, adc, frete).
+"""Puxa os anúncios do ML e gera a planilha de margem (codigo, sku, titulo, status, preco, taxa, adc, frete,
+tipo, envio).
+
+tipo = Clássico ou Premium (listing_type_id); envio = Full ou Normal (shipping.logistic_type).
 
 titulo = family_name do anúncio (nome sem a variação); se não houver, o title.
 
@@ -34,6 +37,7 @@ from comum.ml import LOTE, sku_de, titulo_de
 DIR = Path(__file__).resolve().parent
 DADOS, LOGS, SAIDAS = DIR / 'data', DIR / 'logs', DIR / 'saidas'
 CAMPOS_ITEM = 'id,title,family_name,price,attributes,shipping,category_id,listing_type_id,status'
+TIPOS = {'gold_special': 'Clássico', 'gold_pro': 'Premium', 'free': 'Grátis'}
 SO_ARQUIVO = {'so_arquivo': True}  # extra= de linhas que vão só para o log (na tela fica a barra)
 
 log = logging.getLogger('margem')
@@ -85,7 +89,7 @@ def abrir_db(path):
             PRIMARY KEY (category_id, listing_type_id, preco));
     ''')
     colunas = {r['name'] for r in db.execute('PRAGMA table_info(itens)')}
-    for nova in ('titulo', 'status'):  # bancos criados antes dessas colunas
+    for nova in ('titulo', 'status', 'logistica'):  # bancos criados antes dessas colunas
         if nova not in colunas:
             db.execute(f'ALTER TABLE itens ADD COLUMN {nova} TEXT')
     db.commit()
@@ -155,9 +159,9 @@ def etapa_base(db, c):
                 db.execute('UPDATE itens SET erro=? WHERE id=?', (f'items {x.get("code")}', iid))
                 continue
             db.execute('''UPDATE itens SET sku=?, titulo=?, status=?, preco_anuncio=?, frete_gratis=?, category_id=?,
-                          listing_type_id=?, base_ok=1, erro=NULL WHERE id=?''',
+                          listing_type_id=?, logistica=?, base_ok=1, erro=NULL WHERE id=?''',
                        (sku_de(b), titulo_de(b), b.get('status') or '', b.get('price'), 1 if (b.get('shipping') or {}).get('free_shipping') else 0,
-                        b.get('category_id'), b.get('listing_type_id'), b['id']))
+                        b.get('category_id'), b.get('listing_type_id'), (b.get('shipping') or {}).get('logistic_type') or '', b['id']))
         db.commit()
         pb.update(len(lote))
         log.info(f'  lote {n // LOTE + 1}/{-(-len(pendentes) // LOTE)}', extra=SO_ARQUIVO)
@@ -230,6 +234,17 @@ def etapa_detalhe(db, c, seller):
 
 # ---------------------------------------------------------------- planilha
 
+def tipo_de(listing_type_id):
+    return TIPOS.get(listing_type_id or '', listing_type_id or '')
+
+
+def envio_de(logistica):
+    """Full ou Normal; vazio quando a busca é de antes de guardar a logística."""
+    if logistica is None:
+        return ''
+    return 'Full' if logistica == 'fulfillment' else 'Normal'
+
+
 def exportar(db, nome):
     from openpyxl import Workbook
     from openpyxl.styles import Font
@@ -238,17 +253,19 @@ def exportar(db, nome):
     wb = Workbook()
     ws = wb.active
     ws.title = 'anuncios'
-    cab = ['codigo', 'sku', 'titulo', 'status', 'preco', 'taxa', 'adc', 'frete']
+    cab = ['codigo', 'sku', 'titulo', 'status', 'preco', 'taxa', 'adc', 'frete', 'tipo', 'envio']
     ws.append(cab)
-    for row in db.execute('SELECT id, sku, titulo, status, preco, taxa, adc, frete FROM itens WHERE ok=1 ORDER BY ordem'):
+    for row in db.execute('SELECT id, sku, titulo, status, preco, taxa, adc, frete, listing_type_id, logistica '
+                          'FROM itens WHERE ok=1 ORDER BY ordem'):
         ws.append([row['id'], row['sku'], row['titulo'] or '', row['status'] or '', row['preco'],
-                   row['taxa'] / 100, row['adc'], row['frete']])
+                   row['taxa'] / 100, row['adc'], row['frete'], tipo_de(row['listing_type_id']),
+                   envio_de(row['logistica'])])
     for cel in ws[1]:
         cel.font = Font(bold=True)
     for r in ws.iter_rows(min_row=2):
         r[4].number_format = r[6].number_format = r[7].number_format = '#,##0.00'
         r[5].number_format = '0%'
-    for i, w in enumerate([16, 22, 60, 12, 12, 8, 10, 10], 1):
+    for i, w in enumerate([16, 22, 60, 12, 12, 8, 10, 10, 10, 9], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = 'A2'
     ws.auto_filter.ref = ws.dimensions

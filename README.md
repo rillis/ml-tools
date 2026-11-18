@@ -50,7 +50,7 @@ No menu, use **Autorizar o app no ML** uma vez para gerar o token da conta. Depo
 
 A aba **Margem** do ml-app (`/margem/`) é a interface web. O ml-app só repassa as chamadas para este serviço, que roda no container `ml-tools-web` na porta 51016.
 
-- **Margem**: atualizar (ou continuar) a busca no ML, atualizar só alguns anúncios (**Só alguns**, pelos códigos MLB), recalcular sem buscar, mudar a margem alvo (lucro + gordura + imposto), tabela dos anúncios com filtros (abaixo, na ou acima da meta, sem custo) e a planilha para baixar. Em **Avançado**: buscar só ativos ou pausados, começar do zero, testar com alguns anúncios, recalcular com uma busca antiga e a lista das planilhas geradas.
+- **Margem**: atualizar (ou continuar) a busca no ML, atualizar só alguns anúncios (**Só alguns**, pelos códigos MLB), recalcular sem buscar, mudar a margem alvo (lucro + gordura + imposto), tabela dos anúncios com etiquetas de tipo (Clássico/Premium) e envio (Full/Normal) e filtros (margem, status, tipo e envio) e a planilha para baixar. Em **Avançado**: buscar só ativos ou pausados, começar do zero, testar com alguns anúncios, recalcular com uma busca antiga e a lista das planilhas geradas.
 - **Simulador**: preço sugerido de um SKU com a taxa, o frete e o adc digitados, pela mesma conta da planilha, mostrando o custo de cada parte do SKU.
 - **SKUs**: roda o comparador e mostra os SKUs sem anúncio ou sem solo e os anúncios com peça fora da tabela.
 - **Envio**: envia o PDF do envio do Full e copia a lista somada.
@@ -151,10 +151,11 @@ O fluxo tem duas etapas:
 - O progresso fica em `margem/data/margem.db` e cada anúncio é salvo ao terminar. Se a coleta for interrompida, a próxima execução continua de onde parou; quando ela termina, a próxima começa uma nova.
 - Anúncios que dão erro vão para a aba `pendentes` e são tentados de novo na execução seguinte.
 - A tela mostra uma barra de progresso; o detalhe de cada anúncio fica em `margem/logs/margem.log`. No fim aparece um resumo com o total de requisições e de respostas 429.
-- Saída: `margem/saidas/margem-AAAA-MM-DD_HHMM.xlsx` com `codigo`, `sku`, `titulo`, `status`, `preco`, `taxa`, `adc` e `frete`.
+- Saída: `margem/saidas/margem-AAAA-MM-DD_HHMM.xlsx` com `codigo`, `sku`, `titulo`, `status`, `preco`, `taxa`, `adc`, `frete`, `tipo` e `envio`.
   - `taxa` é o percentual da tarifa de venda do ML, buscado pela categoria, pelo tipo de anúncio e pelo preço de cada anúncio (o percentual muda conforme a faixa de preço).
   - `titulo` é o nome do anúncio sem a variação (`family_name`); se não houver, o título completo.
   - `frete` é o custo de envio dos anúncios com frete grátis; `adc` é o dos anúncios sem frete grátis. Um dos dois é sempre 0.
+  - `tipo` é Clássico ou Premium; `envio` é Full (anúncio no Full do ML) ou Normal.
 
 ### Planilha de custo
 
@@ -174,6 +175,7 @@ O fluxo tem duas etapas:
 | `preco_sugerido` | preço que dá a margem alvo (lucro + gordura + imposto); nos anúncios `so_gratis`, o preço atual |
 | `diferenca` | preco_sugerido − preco (positivo: precisa subir) |
 | `diferenca_pct` | diferenca ÷ preco em %, em valor absoluto (sempre positivo) |
+| `tipo`, `envio` | da coleta (Clássico/Premium e Full/Normal). Numa coleta de antes dessas colunas, o `tipo` vem do `margem.db` e o `envio` fica vazio até a próxima busca |
 
 Da `custo_desc` em diante são fórmulas: ao corrigir um custo na planilha, o resto recalcula.
 
