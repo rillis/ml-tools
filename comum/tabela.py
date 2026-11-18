@@ -144,6 +144,32 @@ class Tabela:
             faltas += f
         return achados, faltas
 
+    def detalhe(self, sku):
+        """Custo do SKU do anúncio e de cada parte dele, para conferir (simulador do site):
+        {'custo', 'como', 'falta', 'partes': [{'parte', 'qtd', 'unitario', 'subtotal', 'como',
+        'gratis', 'pecas': [{'sku', 'qtd', 'preco', 'gratis'}]}]}."""
+        sku = str(sku or '').strip()
+        custo, como, falta = self.custo(sku)
+        inteiro = norm(sku) in self.apelidos or norm(sku) in self.exato
+        partes = [sku] if inteiro else [p.strip() for p in sku.split('+') if p.strip()]
+        saida = []
+        for parte in partes:
+            m = re.match(r'^(\d+)\s*[xX]\s*(.+)$', parte)
+            qtd, nome = (int(m.group(1)), m.group(2).strip()) if m and not inteiro else (1, parte)
+            unit, como_p, _ = self.custo(nome)
+            achados, _ = self.pecas(nome)
+            saida.append({
+                'parte': nome, 'qtd': qtd, 'unitario': unit, 'como': como_p,
+                'subtotal': round(unit * qtd, 2) if unit is not None else None,
+                'gratis': self._gratis(nome),
+                'pecas': [{'sku': n, 'qtd': q, 'preco': self.exato.get(norm(n)), 'gratis': g} for n, q, g in achados],
+            })
+        if any(x['gratis'] for x in saida) and not all(x['gratis'] for x in saida):
+            for x in saida:  # grátis num kit com item pago: R$ 1 por unidade, como no custo
+                if x['gratis']:
+                    x.update(unitario=GRATIS_EM_KIT, subtotal=GRATIS_EM_KIT * x['qtd'], como='grátis no kit (R$ 1 por unidade)')
+        return {'custo': custo, 'como': como, 'falta': falta, 'so_gratis': self.so_gratis(sku), 'partes': saida}
+
     def custo(self, sku, usar_apelido=True):
         """(custo, como, peças sem preço) para o SKU do anúncio."""
         sku = str(sku or '').strip()

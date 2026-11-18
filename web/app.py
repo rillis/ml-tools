@@ -15,8 +15,9 @@ from werkzeug.utils import secure_filename
 
 from comum import autorizar, ml
 from comum.env import PARTES_META, gravar_env, ler_env, margem_meta, partes_meta
-from comum.tabela import APELIDOS, PASTA as TABELAS, PRECOS, carregar_apelidos, carregar_precos
+from comum.tabela import APELIDOS, PASTA as TABELAS, PRECOS, Tabela, carregar_apelidos, carregar_precos
 from envio import somar
+from margem import custo as margem_custo
 from web import jobs
 
 log = logging.getLogger('web')
@@ -89,6 +90,33 @@ def _tabela_info(nome):
     else:
         erro = None
     return {'nome': arq.name, 'existe': True, 'quando': _quando(arq), 'linhas': n, 'erro': erro}
+
+
+_cache_tabela = {}
+
+
+def _tabela():
+    """Tabela de preços + apelidos, lida de novo só quando um dos arquivos muda."""
+    chave = tuple(os.path.getmtime(a) if a.exists() else 0 for a in (PRECOS, APELIDOS))
+    if _cache_tabela.get('chave') != chave:
+        _cache_tabela.update(chave=chave, tab=Tabela(carregar_precos(PRECOS), carregar_apelidos(APELIDOS)))
+    return _cache_tabela['tab']
+
+
+def _valor(valor, nome, minimo=0.0, maximo=100000.0):
+    """Número digitado no site ("13,85", vazio = 0)."""
+    texto = str(valor if valor is not None else '').strip().replace('R$', '').replace(' ', '')
+    if not texto:
+        return 0.0
+    if ',' in texto:
+        texto = texto.replace('.', '').replace(',', '.')
+    try:
+        x = float(texto)
+    except ValueError:
+        raise ValueError(f'{nome}: digite um número') from None
+    if not minimo <= x <= maximo:
+        raise ValueError(f'{nome}: use um valor entre {minimo:g} e {maximo:g}')
+    return x
 
 
 def _pct(valor, minimo, maximo):
@@ -216,6 +244,28 @@ def create_app():
         if modulo not in SAIDAS or not RE_PLANILHA.match(nome):
             abort(404)
         return send_from_directory(SAIDAS[modulo], nome, as_attachment=True)
+
+    # ------------------------------------------------------------ simulador
+
+    @app.post('/api/simular')
+    def api_simular():
+        c = _corpo()
+        sku = str(c.get('sku') or '').strip()
+        if not sku:
+            return _erro('Digite o SKU')
+        if len(sku) > 300:
+            return _erro('SKU longo demais')
+        if not PRECOS.exists():
+            return _erro('Envie a tabela de preços antes (aba Tabelas).', 409)
+        try:
+            taxa = _valor(c.get('taxa'), 'Taxa', 0, 60) / 100
+            frete = _valor(c.get('frete'), 'Frete', 0, 10000)
+            adc = _valor(c.get('adc'), 'Adc', 0, 10000)
+            env = ler_env()
+            return jsonify(margem_custo.simular(_tabela(), sku, taxa, frete, adc,
+                                                margem_meta(env), partes_meta(env)['imposto']))
+        except ValueError as e:
+            return _erro(str(e))
 
     # ------------------------------------------------------------ configurações
 

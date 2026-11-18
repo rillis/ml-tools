@@ -46,6 +46,24 @@ def sugerido(preco, taxa, adc, frete, custo_desc, meta, gratis):
     return round((adc + frete + custo_desc) / (1 - taxa - meta), 2)
 
 
+def simular(tab, sku, taxa, frete, adc, meta, imposto):
+    """Preço sugerido de um SKU com a taxa, frete e adc informados (mesma conta da planilha),
+    com o custo de cada parte do SKU para conferir."""
+    d = tab.detalhe(sku)
+    if d['custo'] is not None:
+        custo_desc = d['custo'] * (1 - DESCONTO)
+        if 1 - taxa - meta <= 0:
+            raise ValueError('Taxa + margem alvo passam de 100%: não há preço que dê a margem')
+        p = sugerido(0, taxa, adc, frete, custo_desc, meta, False)
+        recebe = p * (1 - taxa) - adc - frete
+        lucro = recebe - custo_desc
+        d.update(custo_desc=round(custo_desc, 2), preco_sugerido=p, valor_taxa=round(p * taxa, 2),
+                 recebe=round(recebe, 2), lucro=round(lucro, 2), margem=lucro / p if p > 0 else None,
+                 imposto=round(p * imposto, 2), lucro_liquido=round(lucro - p * imposto, 2))
+    d.update(taxa=taxa, frete=frete, adc=adc, meta=meta, desconto=DESCONTO)
+    return d
+
+
 def calcular(coleta, tab, meta, imposto):
     """Linhas da coleta com custo, margem e preços sugeridos já calculados (o que as fórmulas dão)."""
     saida = []

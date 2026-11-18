@@ -51,6 +51,7 @@ No menu, use **Autorizar o app no ML** uma vez para gerar o token da conta. Depo
 A aba **Margem** do ml-app (`/margem/`) é a interface web. O ml-app só repassa as chamadas para este serviço, que roda no container `ml-tools-web` na porta 51016.
 
 - **Margem**: atualizar (ou continuar) a busca no ML, atualizar só alguns anúncios (**Só alguns**, pelos códigos MLB), recalcular sem buscar, mudar a margem alvo (lucro + gordura + imposto), tabela dos anúncios com filtros (abaixo, na ou acima da meta, sem custo) e a planilha para baixar. Em **Avançado**: buscar só ativos ou pausados, começar do zero, testar com alguns anúncios, recalcular com uma busca antiga e a lista das planilhas geradas.
+- **Simulador**: preço sugerido de um SKU com a taxa, o frete e o adc digitados, pela mesma conta da planilha, mostrando o custo de cada parte do SKU.
 - **SKUs**: roda o comparador e mostra os SKUs sem anúncio ou sem solo e os anúncios com peça fora da tabela.
 - **Envio**: envia o PDF do envio do Full e copia a lista somada.
 - **Tabelas**: baixar e trocar o `precos.xlsx` e o `apelidos.xlsx`. A versão anterior fica em `data/tabelas-anteriores/`.
