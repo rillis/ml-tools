@@ -82,6 +82,13 @@ def _passos(tipo, opcoes):
     if tipo == 'parcial':
         return [('Buscando os anúncios escolhidos no ML', lambda: ['-m', 'margem.coleta', '--atualizar', opcoes['ids']]),
                 ('Calculando custo e margem', lambda: ['-m', 'margem.custo'])]
+    if tipo == 'editar':  # edição à mão de um anúncio na última busca, sem chamar o ML
+        args = ['-m', 'margem.editar', '--item', opcoes['item']]
+        for k in ('preco', 'taxa', 'frete', 'adc'):
+            if opcoes.get(k) is not None:
+                args += [f'--{k}', str(opcoes[k])]
+        return [('Gravando a edição na última busca', lambda: args),
+                ('Calculando custo e margem', lambda: ['-m', 'margem.custo'])]
     if tipo == 'skus':
         return [('Comparando os SKUs com os anúncios', lambda: ['-m', 'skus'])]
     if tipo == 'pares':

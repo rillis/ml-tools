@@ -215,6 +215,25 @@ def create_app():
             if len(itens) > 20:
                 return _erro('Até 20 anúncios por vez')
             opcoes = {'itens': ','.join(itens)}
+        elif tipo == 'editar':
+            item = str(c.get('item') or '').strip().upper()
+            if not re.fullmatch(r'MLB\d+', item):
+                return _erro('Anúncio inválido')
+            col = _coleta_atual()
+            if not col or not col['concluida']:
+                return _erro('Precisa de uma busca completa terminada.')
+            opcoes = {'item': item}
+            try:
+                for k, nome, maximo in (('preco', 'Preço', 100000), ('taxa', 'Tarifa', 60), ('frete', 'Frete', 10000),
+                                        ('adc', 'Adc', 10000)):
+                    if c.get(k) not in (None, ''):
+                        opcoes[k] = _valor(c[k], nome, 0, maximo)
+            except ValueError as e:
+                return _erro(str(e))
+            if opcoes.get('preco') == 0:
+                return _erro('Preço precisa ser maior que zero')
+            if len(opcoes) == 1:
+                return _erro('Nada para mudar')
         elif tipo == 'formato':
             item = str(c.get('item') or '').strip().upper()
             if not re.fullmatch(r'MLB\d+', item):
@@ -235,7 +254,7 @@ def create_app():
             opcoes = {'item': item}
         elif tipo != 'skus':
             return _erro('Tarefa desconhecida')
-        if tipo != 'recalcular' and not _token()['ok']:
+        if tipo not in ('recalcular', 'editar') and not _token()['ok']:
             return _erro('Autorize o app no ML antes (aba Acesso).', 409)
         try:
             return jsonify({'job': jobs.iniciar(tipo, opcoes)}), 202

@@ -131,6 +131,7 @@ O fluxo tem duas etapas:
 
 - **Atualizar margens**: busca todos os anúncios no ML e já gera a planilha de custo e margem. Se a busca for interrompida, a opção vira **Continuar a atualização**.
 - **Atualizar só alguns anúncios (MLB)**: busca de novo no ML só os anúncios informados (códigos com ou sem MLB: `MLB123`, `MLB-123` ou `123`) e troca as linhas deles na última busca completa; os outros ficam como estão. Depois gera a planilha. Precisa de uma busca completa terminada; anúncio que não estava nela entra no fim.
+- **Edição à mão** (só no site, botão ✏️ na linha do anúncio): corrige preço, tarifa, frete ou adc de um anúncio na última busca, sem chamar o ML, para divergências com o painel. Gera uma planilha nova da busca e recalcula a margem; o antes e o depois ficam em `data/edicoes-manuais.json`. O próximo Atualizar margens (ou Só alguns com esse anúncio) desfaz a edição.
 - **Recalcular sem buscar no ML**: gera a planilha de novo com a última busca, depois de mudar o `precos.xlsx` ou o `apelidos.xlsx`.
 - **Mudar o lucro / a gordura / o imposto da margem alvo**: grava `MARGEM_LUCRO`, `MARGEM_GORDURA` ou `MARGEM_IMPOSTO` e oferece recalcular a planilha. A margem alvo é a soma das três.
 - **Avançado**: buscar só ativos ou só pausados, testar com alguns anúncios, recalcular com uma busca mais antiga, gerar a planilha da busca atual sem chamar a API e ver o log.
@@ -145,6 +146,7 @@ O fluxo tem duas etapas:
 .venv/bin/python -m margem.coleta --status active    # só um status
 .venv/bin/python -m margem.coleta --atualizar MLB1,MLB2   # só estes, trocando as linhas deles na última busca completa
 .venv/bin/python -m margem.custo                     # custo e margem com a coleta mais recente
+.venv/bin/python -m margem.editar --item MLB123 --frete 13.85   # edição à mão (também --preco, --taxa em %, --adc)
 .venv/bin/python -m margem.custo --coleta margem/saidas/margem-....xlsx
 ```
 
