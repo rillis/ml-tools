@@ -195,7 +195,9 @@ def preco_venda(c, iid, preco_anuncio):
 
 def custo_envio(c, seller, iid, frete_gratis):
     """(adc, frete): o custo de envio vai em frete nos anúncios com frete grátis e em adc nos outros."""
-    fr = c.get(f'/users/{seller}/shipping_options/free', {'item_id': iid})
+    # sem free_shipping o ML calcula como se o comprador pagasse (abaixo de R$ 79 com frete grátis sai mais barato)
+    fr = c.get(f'/users/{seller}/shipping_options/free',
+               {'item_id': iid, 'free_shipping': 'true' if frete_gratis else 'false'})
     custo = ((fr.get('coverage') or {}).get('all_country') or {}).get('list_cost')
     if custo is None:
         raise ml.MLError('sem list_cost', 'shipping_options', fr)
