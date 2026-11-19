@@ -28,6 +28,7 @@ SAIDAS = {'margem': BASE / 'margem' / 'saidas', 'skus': BASE / 'skus' / 'saidas'
 TABELAS_ARQ = {'precos': PRECOS, 'apelidos': APELIDOS}
 ANTERIORES = BASE / 'data' / 'tabelas-anteriores'
 ENVIO = BASE / 'envio' / 'input'
+FRETE_DIVERGENTE = BASE / 'data' / 'frete-divergente.json'  # editado à mão: frete/adc do painel x API
 RE_PLANILHA = re.compile(r'^[\w-]+\.xlsx$')
 RE_IDS = re.compile(r'^(MLB)?\d+(,(MLB)?\d+)*$', re.I)
 
@@ -295,6 +296,22 @@ def create_app():
         if modulo not in SAIDAS or not RE_PLANILHA.match(nome):
             abort(404)
         return send_from_directory(SAIDAS[modulo], nome, as_attachment=True)
+
+    # ------------------------------------------------------------ frete divergente
+
+    @app.get('/api/frete-divergente')
+    def api_frete_divergente():
+        """Anúncios em que o painel do ML cobra outro frete/adc (medidas calculadas pelo ML, que a API não expõe).
+        Vem de data/frete-divergente.json, editado à mão; entradas sem código ou valor do painel são ignoradas."""
+        try:
+            lista = json.loads(FRETE_DIVERGENTE.read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            lista = []
+        except ValueError as e:
+            return _erro(f'data/frete-divergente.json ilegível: {e}', 500)
+        ok = [d for d in lista if isinstance(d, dict) and re.fullmatch(r'MLB\d+', str(d.get('codigo', '')))
+              and d.get('campo', 'frete') in ('frete', 'adc') and isinstance(d.get('painel'), (int, float))]
+        return jsonify({'anuncios': ok})
 
     # ------------------------------------------------------------ clonar
 
