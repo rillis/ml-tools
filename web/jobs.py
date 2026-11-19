@@ -87,6 +87,11 @@ def _passos(tipo, opcoes):
     if tipo == 'pares':
         extra = ['--ids', opcoes['ids']] if opcoes.get('ids') else []
         return [('Procurando anúncios sem a outra opção de venda', lambda: ['-m', 'clonar.pares', *extra])]
+    if tipo == 'formato':  # corrige formato de venda e quantidade e tenta criar de novo aquele anúncio
+        return [('Corrigindo o formato de venda', lambda: ['-m', 'clonar.formato', '--item', opcoes['itens'],
+                                                           '--formato', opcoes['formato'], '--qtd', str(opcoes['qtd'])]),
+                ('Criando a opção de venda e cravando a margem', lambda: ['-m', 'clonar.criar', '--itens', opcoes['itens']]),
+                ('Atualizando o novo e o original na margem', lambda: ['-m', 'clonar.margem'])]
     if tipo == 'gtin':
         return [('Corrigindo o GTIN duplicado', lambda: ['-m', 'clonar.gtin', '--item', opcoes['item'], '--corrigir'])]
     if tipo == 'clonar':

@@ -19,7 +19,7 @@ ml-tools-web/
 ├── comum/               API do ML (ml.py), autorização (autorizar.py), tabela de preços (tabela.py) e .env (env.py)
 ├── margem/              coleta.py e custo.py; data/, logs/ e saidas/ da margem
 ├── skus/                comparar.py; saidas/ do comparador
-├── clonar/              pares.py, criar.py, margem.py e gtin.py: opção de venda Clássico/Premium que falta
+├── clonar/              pares.py, criar.py, margem.py, gtin.py e formato.py: opção de venda Clássico/Premium que falta
 ├── envio/               somar.py; input/ com os PDFs de envio
 └── data/                token do ML, estado da última tarefa do site, versões anteriores das tabelas e clonar*.json
 ```
@@ -195,6 +195,7 @@ Cria a opção de venda que falta (Clássico ↔ Premium) no mesmo produto do ML
 .venv/bin/python -m clonar.margem                    # atualiza o novo e o original na planilha de margem
 .venv/bin/python -m clonar.gtin --item MLB123         # plano para o GTIN duplicado (só lê o ML)
 .venv/bin/python -m clonar.gtin --item MLB123 --corrigir   # tira o GTIN de quem não deveria ter
+.venv/bin/python -m clonar.formato --item MLB123 --formato pack --qtd 3   # formato de venda e quantidade
 ```
 
 - **Sem par**: anúncio ativo ou pausado sem nenhum anúncio do outro tipo (ativo, pausado ou em revisão) com o mesmo SKU nem no mesmo produto. O SKU é a chave principal, porque anúncios antigos ficam em produtos diferentes. Cada SKU vira uma linha (a do anúncio ativo fora de catálogo, de preferência); anúncio sem SKU é comparado só pelo produto. Anúncio só com itens grátis fica de fora (kit com item pago entra).
@@ -209,6 +210,7 @@ Cria a opção de venda que falta (Clássico ↔ Premium) no mesmo produto do ML
   1. Junta os anúncios com o mesmo GTIN por produto e escolhe quem fica com ele: o produto do mesmo domínio que o produto de catálogo do ML com esse GTIN; sem catálogo que decida, o SKU solo (o kit perde). Se nem assim der para decidir, não mexe.
   2. Quem perde fica com "Meu produto não o tem" (`EMPTY_GTIN_REASON`): "kit ou pack" para kit e "não tem código cadastrado" para solo. Edita um anúncio por produto, de preferência o que não é de catálogo; o ML replica nos outros do mesmo produto.
   3. Confere que o GTIN saiu; depois é só criar a opção de novo.
+- **Formato de venda e quantidade**: algumas categorias pedem a "Quantidade de unidades" (`UNITS_PER_PACK`) sempre que o "Formato de venda" (`SALE_FORMAT`) está preenchido, e o ML recusa a opção nova sem ela. Esses campos não aparecem no painel. Quando a criação dá esse erro, o site mostra **Corrigir e tentar de novo** (no andamento e na lista): escolhe Unidade ou Kit/pack e a quantidade (sugerida pelo SKU), e a tarefa grava os dois (`clonar.formato`), espera 5 s, tenta criar de novo aquele anúncio e atualiza a margem. O estado de antes fica em `data/clonar-formato/`.
 - No site, depois de criar, o novo e o original são atualizados na planilha de margem (como o **Só alguns**), se houver uma busca completa terminada.
 - O resultado de cada criação (preços, margem e avisos) fica em `data/clonar-historico.json` e aparece na lista **Criados** da aba.
 

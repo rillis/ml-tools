@@ -215,6 +215,19 @@ def create_app():
             if len(itens) > 20:
                 return _erro('Até 20 anúncios por vez')
             opcoes = {'itens': ','.join(itens)}
+        elif tipo == 'formato':
+            item = str(c.get('item') or '').strip().upper()
+            if not re.fullmatch(r'MLB\d+', item):
+                return _erro('Anúncio inválido')
+            if c.get('formato') not in ('unidade', 'pack'):
+                return _erro('Escolha Unidade ou Kit/pack')
+            try:
+                qtd = int(str(c.get('qtd')).strip())
+            except ValueError:
+                return _erro('Quantidade: digite um número inteiro')
+            if not 1 <= qtd <= 100:
+                return _erro('Quantidade de 1 a 100')
+            opcoes = {'itens': item, 'formato': c['formato'], 'qtd': qtd}
         elif tipo == 'gtin':
             item = str(c.get('item') or '').strip().upper()
             if not re.fullmatch(r'MLB\d+', item):
