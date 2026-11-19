@@ -168,14 +168,8 @@ def etapa_base(db, c):
     pb.close()
 
 
-def taxa_de(db, c, category_id, listing_type_id, preco):
-    """Percentual da tarifa. Depende da categoria, do tipo de anúncio e também do preço
-    (na mesma categoria, R$ 150 pode pagar 11% e R$ 1.000, 12%), então busca por categoria + tipo + preço."""
-    preco = round(preco, 2)
-    row = db.execute('SELECT percentual FROM taxas_preco WHERE category_id=? AND listing_type_id=? AND preco=?',
-                     (category_id, listing_type_id, preco)).fetchone()
-    if row:
-        return row['percentual']
+def taxa_ml(c, category_id, listing_type_id, preco):
+    """Percentual da tarifa de venda do ML para esse preço (muda conforme a faixa de preço)."""
     r = c.get('/sites/MLB/listing_prices',
               {'price': preco, 'listing_type_id': listing_type_id, 'category_id': category_id})
     det = r.get('sale_fee_details') or {}
@@ -185,6 +179,38 @@ def taxa_de(db, c, category_id, listing_type_id, preco):
     if det.get('fixed_fee'):
         log.warning(f'Tarifa com valor fixo de R$ {det["fixed_fee"]} em {category_id} a R$ {preco}: '
                     'a margem considera só o percentual')
+    return pct
+
+
+def preco_venda(c, iid, preco_anuncio):
+    """Preço que o comprador paga hoje (com promoção, se houver)."""
+    try:
+        sp = c.get(f'/items/{iid}/sale_price', {'context': 'channel_marketplace'})
+        return sp.get('amount') or preco_anuncio
+    except ml.MLError as e:
+        if e.status != 404:
+            raise
+        return preco_anuncio
+
+
+def custo_envio(c, seller, iid, frete_gratis):
+    """(adc, frete): o custo de envio vai em frete nos anúncios com frete grátis e em adc nos outros."""
+    fr = c.get(f'/users/{seller}/shipping_options/free', {'item_id': iid})
+    custo = ((fr.get('coverage') or {}).get('all_country') or {}).get('list_cost')
+    if custo is None:
+        raise ml.MLError('sem list_cost', 'shipping_options', fr)
+    return (0, custo) if frete_gratis else (custo, 0)
+
+
+def taxa_de(db, c, category_id, listing_type_id, preco):
+    """Percentual da tarifa. Depende da categoria, do tipo de anúncio e também do preço
+    (na mesma categoria, R$ 150 pode pagar 11% e R$ 1.000, 12%), então busca por categoria + tipo + preço."""
+    preco = round(preco, 2)
+    row = db.execute('SELECT percentual FROM taxas_preco WHERE category_id=? AND listing_type_id=? AND preco=?',
+                     (category_id, listing_type_id, preco)).fetchone()
+    if row:
+        return row['percentual']
+    pct = taxa_ml(c, category_id, listing_type_id, preco)
     db.execute('INSERT OR REPLACE INTO taxas_preco VALUES (?, ?, ?, ?)', (category_id, listing_type_id, preco, pct))
     db.commit()
     return pct
@@ -203,19 +229,9 @@ def etapa_detalhe(db, c, seller):
     for it in pend:
         iid = it['id']
         try:
-            try:
-                sp = c.get(f'/items/{iid}/sale_price', {'context': 'channel_marketplace'})
-                preco = sp.get('amount') or it['preco_anuncio']
-            except ml.MLError as e:
-                if e.status != 404:
-                    raise
-                preco = it['preco_anuncio']
+            preco = preco_venda(c, iid, it['preco_anuncio'])
             taxa = taxa_de(db, c, it['category_id'], it['listing_type_id'], preco)
-            fr = c.get(f'/users/{seller}/shipping_options/free', {'item_id': iid})
-            custo = ((fr.get('coverage') or {}).get('all_country') or {}).get('list_cost')
-            if custo is None:
-                raise ml.MLError('sem list_cost', 'shipping_options', fr)
-            adc, frete = (0, custo) if it['frete_gratis'] else (custo, 0)
+            adc, frete = custo_envio(c, seller, iid, it['frete_gratis'])
             db.execute('UPDATE itens SET preco=?, taxa=?, adc=?, frete=?, ok=1, erro=NULL, atualizado=? WHERE id=?',
                        (preco, taxa, adc, frete, agora(), iid))
             db.commit()

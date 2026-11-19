@@ -232,10 +232,12 @@ def mg_parcial():
     if not c or not c['concluida']:
         print('Precisa de uma busca completa terminada antes: use "Atualizar margens".')
         return pausa()
-    texto = questionary.text('Códigos MLB dos anúncios (separados por vírgula ou espaço):',
-                             validate=lambda t: bool(re.search(r'MLB\d+', t, re.I)) or 'Use códigos como MLB6926478482',
+    # com ou sem MLB: "MLB123", "MLB-123" e "123" viram MLB123
+    achar = r'(?:MLB-?)?(\d{6,})'
+    texto = questionary.text('Códigos dos anúncios, com ou sem MLB (separados por vírgula ou espaço):',
+                             validate=lambda t: bool(re.search(achar, t, re.I)) or 'Use códigos como MLB6926478482 ou 6926478482',
                              style=ESTILO).ask()
-    ids = list(dict.fromkeys(re.findall(r'MLB\d+', (texto or '').upper())))
+    ids = list(dict.fromkeys('MLB' + n for n in re.findall(achar, (texto or '').upper())))
     if not ids:
         return
     coletar_e_calcular('--atualizar', ','.join(ids))

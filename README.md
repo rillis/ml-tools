@@ -19,8 +19,9 @@ ml-tools-web/
 ├── comum/               API do ML (ml.py), autorização (autorizar.py), tabela de preços (tabela.py) e .env (env.py)
 ├── margem/              coleta.py e custo.py; data/, logs/ e saidas/ da margem
 ├── skus/                comparar.py; saidas/ do comparador
+├── clonar/              pares.py, criar.py, margem.py e gtin.py: opção de venda Clássico/Premium que falta
 ├── envio/               somar.py; input/ com os PDFs de envio
-└── data/                token do ML, estado da última tarefa do site e versões anteriores das tabelas
+└── data/                token do ML, estado da última tarefa do site, versões anteriores das tabelas e clonar*.json
 ```
 
 As pastas `data/`, `logs/`, `saidas/` e `input/` (de qualquer módulo) ficam fora do Git.
@@ -52,6 +53,7 @@ A aba **Margem** do ml-app (`/margem/`) é a interface web. O ml-app só repassa
 
 - **Margem**: atualizar (ou continuar) a busca no ML, atualizar só alguns anúncios (**Só alguns**, pelos códigos MLB), recalcular sem buscar, mudar a margem alvo (lucro + gordura + imposto), tabela dos anúncios com etiquetas de tipo (Clássico/Premium) e envio (Full/Normal) e filtros (margem, status, tipo e envio) e a planilha para baixar. Em **Avançado**: buscar só ativos ou pausados, começar do zero, testar com alguns anúncios, recalcular com uma busca antiga e a lista das planilhas geradas.
 - **Simulador**: preço sugerido de um SKU com a taxa, o frete e o adc digitados, pela mesma conta da planilha, mostrando o custo de cada parte do SKU.
+- **Clonar**: lista os anúncios ativos e pausados sem a outra opção de venda (Clássico sem Premium ou o contrário) no mesmo produto e cria a que falta, um anúncio ou vários marcados (até 20 por vez). Veja [Clonar](#clonar).
 - **SKUs**: roda o comparador e mostra os SKUs sem anúncio ou sem solo e os anúncios com peça fora da tabela.
 - **Envio**: envia o PDF do envio do Full e copia a lista somada.
 - **Tabelas**: baixar e trocar o `precos.xlsx` e o `apelidos.xlsx`. A versão anterior fica em `data/tabelas-anteriores/`.
@@ -128,7 +130,7 @@ O fluxo tem duas etapas:
 ### Menu da margem
 
 - **Atualizar margens**: busca todos os anúncios no ML e já gera a planilha de custo e margem. Se a busca for interrompida, a opção vira **Continuar a atualização**.
-- **Atualizar só alguns anúncios (MLB)**: busca de novo no ML só os anúncios informados (códigos MLB) e troca as linhas deles na última busca completa; os outros ficam como estão. Depois gera a planilha. Precisa de uma busca completa terminada; anúncio que não estava nela entra no fim.
+- **Atualizar só alguns anúncios (MLB)**: busca de novo no ML só os anúncios informados (códigos com ou sem MLB: `MLB123`, `MLB-123` ou `123`) e troca as linhas deles na última busca completa; os outros ficam como estão. Depois gera a planilha. Precisa de uma busca completa terminada; anúncio que não estava nela entra no fim.
 - **Recalcular sem buscar no ML**: gera a planilha de novo com a última busca, depois de mudar o `precos.xlsx` ou o `apelidos.xlsx`.
 - **Mudar o lucro / a gordura / o imposto da margem alvo**: grava `MARGEM_LUCRO`, `MARGEM_GORDURA` ou `MARGEM_IMPOSTO` e oferece recalcular a planilha. A margem alvo é a soma das três.
 - **Avançado**: buscar só ativos ou só pausados, testar com alguns anúncios, recalcular com uma busca mais antiga, gerar a planilha da busca atual sem chamar a API e ver o log.
@@ -180,6 +182,35 @@ O fluxo tem duas etapas:
 Da `custo_desc` em diante são fórmulas: ao corrigir um custo na planilha, o resto recalcula.
 
 O `preco_sugerido` usa a taxa e o custo de envio do preço atual. Se o novo preço mudar a faixa de tarifa ou de frete do ML, a margem real pode ficar um pouco diferente; a próxima coleta mostra o valor atualizado.
+
+## Clonar
+
+Cria a opção de venda que falta (Clássico ↔ Premium) no mesmo produto do ML (user product), pelo preço da margem alvo.
+
+```bash
+.venv/bin/python -m clonar.pares                     # lista os anúncios sem par (data/clonar.json); só lê o ML
+.venv/bin/python -m clonar.pares --ids MLB1,MLB2     # teste com alguns anúncios
+.venv/bin/python -m clonar.criar --item MLB123       # cria a opção que falta deste anúncio e crava a margem
+.venv/bin/python -m clonar.criar --itens MLB1,MLB2   # até 20: cria todos e confere todos a cada rodada
+.venv/bin/python -m clonar.margem                    # atualiza o novo e o original na planilha de margem
+.venv/bin/python -m clonar.gtin --item MLB123         # plano para o GTIN duplicado (só lê o ML)
+.venv/bin/python -m clonar.gtin --item MLB123 --corrigir   # tira o GTIN de quem não deveria ter
+```
+
+- **Sem par**: anúncio ativo ou pausado sem nenhum anúncio do outro tipo (ativo, pausado ou em revisão) com o mesmo SKU nem no mesmo produto. O SKU é a chave principal, porque anúncios antigos ficam em produtos diferentes. Cada SKU vira uma linha (a do anúncio ativo fora de catálogo, de preferência); anúncio sem SKU é comparado só pelo produto. Anúncio só com itens grátis fica de fora (kit com item pago entra).
+- **Criar** (`clonar.criar`):
+  1. Lê o original e confere de novo, pelo SKU e pelo produto, que a outra opção não existe.
+  2. Calcula o preço da opção nova: custo do SKU pela tabela de preços, tarifa do tipo novo nesse preço e frete/adc do original.
+  3. Cria a opção (`POST /user-products/{id}/items`) com a garantia do original. Ela nasce no envio normal, mesmo que o original seja Full, e usa o estoque do produto (o mesmo do original).
+  4. Relê o anúncio novo a cada 10 s (até 10 vezes) e ajusta o preço até ele ficar no preço da margem alvo em duas leituras seguidas. Se o preço ficar indo e voltando entre dois valores (faixa de frete ou de tarifa), fica no maior.
+  5. Relê o original junto: se a tarifa ou o frete dele mudou e a margem saiu do alvo, ajusta o preço dele e avisa (em promoção, só avisa). Original que já começou fora do alvo e não mudou fica como está.
+- Em lote, cria todos primeiro e depois confere todos a cada rodada; o erro de um não para os outros. A etapa de cada anúncio (na fila, criando, conferindo, cravado, sem cravar, erro) fica em `data/clonar-andamento.json`, que o site mostra numa janela até a criação terminar.
+- **GTIN duplicado**: o ML recusa criar a opção nova quando o GTIN do produto já está num anúncio seu de outra categoria (é comum o kit usar o GTIN de uma das peças). A busca marca esses anúncios, e no site o botão **Corrigir GTIN** mostra o plano antes de executar (`clonar.gtin`):
+  1. Junta os anúncios com o mesmo GTIN por produto e escolhe quem fica com ele: o produto do mesmo domínio que o produto de catálogo do ML com esse GTIN; sem catálogo que decida, o SKU solo (o kit perde). Se nem assim der para decidir, não mexe.
+  2. Quem perde fica com "Meu produto não o tem" (`EMPTY_GTIN_REASON`): "kit ou pack" para kit e "não tem código cadastrado" para solo. Edita um anúncio por produto, de preferência o que não é de catálogo; o ML replica nos outros do mesmo produto.
+  3. Confere que o GTIN saiu; depois é só criar a opção de novo.
+- No site, depois de criar, o novo e o original são atualizados na planilha de margem (como o **Só alguns**), se houver uma busca completa terminada.
+- O resultado de cada criação (preços, margem e avisos) fica em `data/clonar-historico.json` e aparece na lista **Criados** da aba.
 
 ## Comparador de SKUs
 

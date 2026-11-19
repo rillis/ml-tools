@@ -139,9 +139,19 @@ class MLClient:
             return save_tokens(js)
 
     def get(self, path, params=None):
+        return self._req('GET', path, params)
+
+    def post(self, path, corpo, params=None):
+        return self._req('POST', path, params, corpo)
+
+    def put(self, path, corpo, params=None):
+        return self._req('PUT', path, params, corpo)
+
+    def _req(self, metodo, path, params=None, corpo=None):
         url = path if path.startswith('http') else API + path
         if params:
             url += ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
+        dados = json.dumps(corpo).encode('utf-8') if corpo is not None else None
         tokens = read_tokens()
         if tokens.get('expires_at', 0) - 60 < time.time():
             tokens = self.refresh()
@@ -149,11 +159,15 @@ class MLClient:
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             self._throttle()
             self.contagem['requisicoes'] += 1
-            req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + tokens['token']})
+            cab = {'Authorization': 'Bearer ' + tokens['token']}
+            if dados is not None:
+                cab['Content-Type'] = 'application/json'
+            req = urllib.request.Request(url, data=dados, headers=cab, method=metodo)
             curta = url.replace(API, '').split('?')[0]
             try:
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    return json.load(r)
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    texto = r.read().decode('utf-8', 'replace')
+                    return json.loads(texto) if texto.strip() else {}
             except urllib.error.HTTPError as e:
                 body = e.read().decode('utf-8', 'replace')
                 if e.code == 401 and not refreshed:
@@ -164,7 +178,9 @@ class MLClient:
                     self.contagem['429'] += 1
                 # o ML às vezes responde 403 ResourceDeprecated numa chamada que funciona logo depois
                 passageiro = e.code == 403 and 'ResourceDeprecated' in body
-                if (e.code == 429 or e.code >= 500 or passageiro) and attempt < self.MAX_ATTEMPTS:
+                # POST que deu 5xx pode ter criado o anúncio: não repete, quem chamou confere
+                repete = e.code == 429 or passageiro or (e.code >= 500 and metodo != 'POST')
+                if repete and attempt < self.MAX_ATTEMPTS:
                     espera = 5 * attempt  # 429: o ML pede para tentar de novo em alguns segundos
                     self.contagem['tentativas'] += 1
                     log.warning(f'{e.code} em {curta}: esperando {espera}s (tentativa {attempt}/{self.MAX_ATTEMPTS})')
@@ -172,7 +188,7 @@ class MLClient:
                     continue
                 raise MLError(e.code, url, body) from None
             except urllib.error.URLError as e:
-                if attempt < self.MAX_ATTEMPTS:
+                if attempt < self.MAX_ATTEMPTS and metodo != 'POST':
                     self.contagem['tentativas'] += 1
                     log.warning(f'Erro de rede em {curta} ({e.reason}): tentando de novo em {2 * attempt}s')
                     time.sleep(2 * attempt)

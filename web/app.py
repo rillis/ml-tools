@@ -13,6 +13,8 @@ from pathlib import Path
 from flask import Flask, abort, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
+import clonar
+from clonar import gtin as clonar_gtin
 from comum import autorizar, ml
 from comum.env import PARTES_META, gravar_env, ler_env, margem_meta, partes_meta
 from comum.tabela import APELIDOS, PASTA as TABELAS, PRECOS, Tabela, carregar_apelidos, carregar_precos
@@ -189,10 +191,11 @@ def create_app():
                 return _erro('Use até 20 códigos como MLB6926478482, separados por vírgula')
             opcoes = {'ids': ids}
         elif tipo == 'parcial':
-            # MLB separados por vírgula, espaço ou linha; repetidos contam uma vez
-            ids = list(dict.fromkeys(re.findall(r'MLB\d+', str(c.get('ids') or '').upper())))
+            # códigos com ou sem MLB (MLB123, MLB-123 ou só 123), separados por vírgula, espaço ou linha;
+            # repetidos contam uma vez
+            ids = list(dict.fromkeys('MLB' + n for n in re.findall(r'(?:MLB-?)?(\d{6,})', str(c.get('ids') or '').upper())))
             if not ids:
-                return _erro('Cole os códigos dos anúncios (MLB…)')
+                return _erro('Cole os códigos dos anúncios (com ou sem MLB)')
             if len(ids) > 200:
                 return _erro('Use até 200 anúncios por vez; para mais, use Atualizar margens')
             col = _coleta_atual()
@@ -201,6 +204,22 @@ def create_app():
             if not col['concluida']:
                 return _erro('A última busca completa parou no meio: continue ela antes.')
             opcoes = {'ids': ','.join(ids)}
+        elif tipo == 'pares':
+            ids = list(dict.fromkeys(re.findall(r'MLB\d+', str(c.get('ids') or '').upper())))
+            opcoes = {'ids': ','.join(ids[:20])} if ids else {}
+        elif tipo == 'clonar':
+            itens = list(dict.fromkeys(re.findall(r'MLB\d+', ' '.join(map(str, c.get('itens') or [c.get('item') or '']))
+                                                  .upper())))
+            if not itens:
+                return _erro('Escolha os anúncios')
+            if len(itens) > 20:
+                return _erro('Até 20 anúncios por vez')
+            opcoes = {'itens': ','.join(itens)}
+        elif tipo == 'gtin':
+            item = str(c.get('item') or '').strip().upper()
+            if not re.fullmatch(r'MLB\d+', item):
+                return _erro('Anúncio inválido')
+            opcoes = {'item': item}
         elif tipo != 'skus':
             return _erro('Tarefa desconhecida')
         if tipo != 'recalcular' and not _token()['ok']:
@@ -244,6 +263,38 @@ def create_app():
         if modulo not in SAIDAS or not RE_PLANILHA.match(nome):
             abort(404)
         return send_from_directory(SAIDAS[modulo], nome, as_attachment=True)
+
+    # ------------------------------------------------------------ clonar
+
+    @app.get('/api/clonar')
+    def api_clonar():
+        pares = clonar.ler_json(clonar.PARES, None)
+        hist = clonar.ler_json(clonar.HISTORICO, [])
+        if pares:
+            # some da lista o que já foi clonado depois da busca (o par existe agora)
+            feitos = {h.get('up') for h in hist if h.get('novo') and (h.get('inicio') or '') >= pares['gerado']}
+            pares['linhas'] = [l for l in pares['linhas'] if l['up'] not in feitos]
+        return jsonify({'pares': pares, 'historico': hist[:100]})
+
+    @app.get('/api/clonar/gtin')
+    def api_clonar_gtin():
+        """Plano de correção do GTIN duplicado de um anúncio (só lê o ML)."""
+        item = str(request.args.get('item') or '').strip().upper()
+        if not re.fullmatch(r'MLB\d+', item):
+            return _erro('Anúncio inválido')
+        if not _token()['ok']:
+            return _erro('Autorize o app no ML antes (aba Acesso).', 409)
+        try:
+            c = ml.MLClient()
+            return jsonify({'plano': clonar_gtin.plano(c, ml.read_tokens().get('user_id') or c.get('/users/me')['id'], item)})
+        except clonar_gtin.Falha as e:
+            return _erro(str(e))
+        except ml.MLError as e:
+            return _erro(f'Erro no ML: {e}', 502)
+
+    @app.get('/api/clonar/andamento')
+    def api_clonar_andamento():
+        return jsonify({'andamento': clonar.ler_json(clonar.ANDAMENTO, None)})
 
     # ------------------------------------------------------------ simulador
 

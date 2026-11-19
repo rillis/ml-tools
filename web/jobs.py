@@ -84,10 +84,20 @@ def _passos(tipo, opcoes):
                 ('Calculando custo e margem', lambda: ['-m', 'margem.custo'])]
     if tipo == 'skus':
         return [('Comparando os SKUs com os anúncios', lambda: ['-m', 'skus'])]
+    if tipo == 'pares':
+        extra = ['--ids', opcoes['ids']] if opcoes.get('ids') else []
+        return [('Procurando anúncios sem a outra opção de venda', lambda: ['-m', 'clonar.pares', *extra])]
+    if tipo == 'gtin':
+        return [('Corrigindo o GTIN duplicado', lambda: ['-m', 'clonar.gtin', '--item', opcoes['item'], '--corrigir'])]
+    if tipo == 'clonar':
+        return [('Criando a opção de venda e cravando a margem', lambda: ['-m', 'clonar.criar', '--itens', opcoes.get('itens') or opcoes['item']]),
+                ('Atualizando o novo e o original na margem', lambda: ['-m', 'clonar.margem'])]
     raise ValueError(f'Tarefa desconhecida: {tipo}')
 
 
 def _resultado(tipo):
+    if tipo in ('pares', 'gtin'):
+        return None
     if tipo == 'skus':
         return _mais_recente(SKUS_SAIDAS / 'skus-*.xlsx')
     if tipo == 'teste':
